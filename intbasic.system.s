@@ -36,6 +36,9 @@ GET_EOF         = $D1
 .endmacro
 
 ;;; ============================================================
+;;; System Program
+;;; ============================================================
+
 ;;; ProDOS Interpreter Protocol
 ;;; ProDOS 8 Technical Reference Manual
 ;;; 5.1.5.1 - Starting System Programs
@@ -45,8 +48,6 @@ GET_EOF         = $D1
         .byte   $41             ; path buffer length
 path:   .res    $41,0           ; path buffer
 start:
-
-;;; ============================================================
 
 ;;; --------------------------------------------------
 ;;; Configure system bitmap
@@ -85,12 +86,24 @@ start:
         jsr     MOVE
         jmp     relo
 
-;;; --------------------------------------------------
+;;; ============================================================
 ;;; Load program (if given) and invoke Integer BASIC
+;;; ============================================================
 
         __saved_org__ .set *
         .proc proc
         .org ::relo
+
+        ;; Make LOAD/SAVE just QUIT to ProDOS
+        lda     #OPC_JMP_abs
+        ldx     #<quit
+        ldy     #>quit
+        sta     LOAD+0
+        stx     LOAD+1
+        sty     LOAD+2
+        sta     SAVE+0
+        stx     SAVE+1
+        sty     SAVE+2
 
         lda     path
         bne     have_path
@@ -130,10 +143,15 @@ have_path:
         ;;   * When is it safe to jsr COLD?
         ;; TODO: Load program
         ;; TODO: Twiddle pointers
-        ;; TODO: Set WARM to return here and QUIT
-        ;; TODO: Invoke RUNWARM
 
-        brk
+        ;; When END is invoked, just QUIT
+        SET16   END+1, quit     ; replaces: JMP WARM
+
+        ;; Also capture ERRMESS, just QUIT
+        SET16   ERRMESS+1, quit ; replaces: JSR PRINTERR
+
+        ;; Run the program
+        jmp     RUNWARM
 
 close:
         php
@@ -206,7 +224,11 @@ quit_res3:              .word   0 ; reserved
         .include "IntegerBASIC_cc65.s"
         .endproc
         sizeof_intbasic = .sizeof(intbasic)
-        BASIC = intbasic::BASIC ; jsr COLD ; jmp WARM
-        COLD = intbasic::COLD
-        WARM = intbasic::WARM
+        BASIC   = intbasic::BASIC ; jsr COLD ; jmp WARM
+        COLD    = intbasic::COLD
+        WARM    = intbasic::WARM
         RUNWARM = intbasic::RUNWARM
+        END     = intbasic::END
+        ERRMESS = intbasic::ERRMESS
+        LOAD    = intbasic::LOAD
+        SAVE    = intbasic::SAVE
