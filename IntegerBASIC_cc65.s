@@ -114,7 +114,7 @@ MON_WRITE0 =    $fecf
 MON_READ =      $fefd   ;read data from cassette
 MON_BELL =      $ff3a   ;sound bell
 
-        .org    $e000
+        .org    $A000
 BASIC:  jsr     COLD
 BASIC2: jmp     WARM
 
@@ -140,7 +140,7 @@ LE01A:  cmp     MON_CH  ;check line length
         lda     #BLANK+128
         dey
         bne     @Loop
-; 
+;
 NextByte:
         ldy     #$00    ;get next byte 16-bit ptr
         lda     (P1),y
@@ -149,10 +149,10 @@ NextByte:
         inc     P1+1
 Return: rts
 
-; 
+;
 ; Token $75 , (with token $74 LIST)
 ;  LIST 5,30
-; 
+;
 COMMA_LIST:
         jsr     GET16BIT
         jsr     LE576
@@ -164,10 +164,10 @@ LE03B:  lda     P1
         jsr     UNPACK
         jmp     LE03B
 
-; 
+;
 ; Token $76 LIST
 ;  list entire program
-; 
+;
 LIST:   lda     PP      ;P1 = PP
         sta     P1
         lda     PP+1
@@ -177,11 +177,11 @@ LIST:   lda     PP      ;P1 = PP
         lda     HIMEM+1
         sta     P3+1
         bne     LE03B   ;(always)
-; 
+;
 ; Token $74 LIST
 ;  specific line number or range of numbers
 ;  LIST 10: LIST 5,30
-; 
+;
 LISTNUM:
         jsr     GET16BIT
         jsr     LE56D
@@ -268,11 +268,11 @@ UNPACK: stx     XSAVE
         bne     @Loop
         beq     @LE099  ;(always)
 
-; 
+;
 ; Token $2a (
 ;   substring
 ;   PRINT A$(12,14)
-; 
+;
 PAREN_SUBSTR:
         jsr     LE118
         sta     NOUNSTKL,x
@@ -282,11 +282,11 @@ PrintErr05:
         ldy     #<ErrMsg05 ;"STRING"
 LE106:  jmp     ERRMESS
 
-; 
+;
 ; Token $23 ,
 ;   substring
 ;   PRINT A$(3,3)
-; 
+;
 COMMA_SUBSTR:
         jsr     GETBYTE
         cmp     NOUNSTKL,x
@@ -301,11 +301,11 @@ LE118:  jsr     GETBYTE
         sbc     #$01
         rts
 
-; 
+;
 ; Token $42 (
 ;   string array is destination of the data
 ;   A$(1)="HELLO"
-; 
+;
 TE121:  jsr     LE118
         sta     NOUNSTKL,x
         clc
@@ -316,15 +316,15 @@ PrintErr03:
         ldy     #<ErrMsg03 ;"MEM FULL"
         bne     LE106   ;(always)
 
-; 
+;
 ; Token $43 ,
 ;   next var in DIM statement is string
 ;   DIM X(5),A$(5)
-; 
+;
 ; token $4e DIM
 ;   string var uses token $22 (
 ;   DIM A$(5)
-; 
+;
 DIMSTR: jsr     LE118
         inx
 LE134:  lda     NOUNSTKL,x
@@ -365,9 +365,9 @@ LE134:  lda     NOUNSTKL,x
 DimErr: ldy     #<ErrMsg17 ;"DIM"
 LE16F:  bne     LE106   ;(always)
 
-; 
+;
 ; Input a string.
-; 
+;
 INPUTSTR:
         lda     #$00
         jsr     LE70A
@@ -382,11 +382,11 @@ INPUTSTR:
         txa
         ldx     XSAVE
         sta     NOUNSTKH,x
-; 
+;
 ; Token $70 =
 ;   string - non-conditional
 ;   A$ = "HELLO"
-; 
+;
 TE18C:  lda     NOUNSTKL+1,x
         sta     ACC
         lda     NOUNSTKH+1,x
@@ -431,11 +431,11 @@ TE18C:  lda     NOUNSTKL+1,x
         sta     P2
         rts
 
-; 
+;
 ; Token $39 =
 ;   string logic op
 ;   IF A$ = "CAT" THEN END
-; 
+;
 TE1D7:  lda     NOUNSTKL+3,x
         sta     ACC
         lda     NOUNSTKH+3,x
@@ -480,19 +480,19 @@ TE1D7:  lda     NOUNSTKL+3,x
         inc     NOUNSTKL-1,x
         inc     HIMEM+1,x
         bcs     @LE1F3  ;(always)
-; 
+;
 ; Token $3a #
 ;   string logic op
 ;   IF A$ # "CAT" THEN END
-; 
+;
 TE21C:  jsr     TE1D7
         jmp     NOT
 
-; 
+;
 ; Token $14 *
 ;   num math op
 ;   A = 27 * 2
-; 
+;
 MULT:   jsr     LE254
 @Loop:  asl     ACC
         rol     ACC+1   ;add partial product if C flag set
@@ -540,11 +540,11 @@ LE254:  lda     #$55
 Return1:
         rts
 
-; 
+;
 ; Token $1f MOD
 ;   num op
 ;   IF X MOD 13 THEN END
-; 
+;
 MOD:    jsr     LEE6C
         beq     MultEnd ;(always)
         .byte   $ff
@@ -555,10 +555,10 @@ LE280:  inc     MON_PROMPT ;change '>' to '?'
         dec     MON_PROMPT ;change '?' to '>'
         rts
 
-; 
+;
 ; Token $3d SCRN(
 ;   PRINT SCRN(X,Y)
-; 
+;
 SCRN:   jsr     GETBYTE
         lsr     A       ;A-reg = A-reg / 2
         php             ;stash carry (lsb)
@@ -578,10 +578,10 @@ SCRN:   jsr     GETBYTE
         sty     NOUNSTKC,x
         dey
         sty     PRFLAG  ;PRFLAG = $ff
-; 
+;
 ; Token $3e ,
 ;   PRINT SCRN(X,Y)
-; 
+;
 COMMA_SCRN:
         rts
 
@@ -589,9 +589,9 @@ COMMA_SCRN:
 
 unref_e2b0:
         jsr     LEFD3   ;old 4K cold start
-; 
+;
 ; Warm start.  Main compile / execute code.
-; 
+;
 WARM:   jsr     MON_CROUT ;emit blank line
 LE2B6:  lsr     RUNFLAG ;not running
         lda     #'>' | $80
@@ -691,10 +691,10 @@ MEMFULL:
         ldy     #<ErrMsg03 ;"MEM FULL"
         bne     ERRMESS ;(always)
 
-; 
+;
 ; Token $0a ,
 ;   DEL 0,10
-; 
+;
 COMMA_DEL:
         jsr     GET16BIT
         lda     P1      ;P3 = P1
@@ -707,9 +707,9 @@ COMMA_DEL:
         lda     P1+1
         sta     P2+1
         bne     LE395   ;(always?)
-; 
+;
 ; Token $09 DEL
-; 
+;
 DEL:    jsr     GET16BIT
 LE38A:  jsr     LE56D
         lda     P3      ;P1 = P3
@@ -743,9 +743,9 @@ LE395:  ldy     #$00
 
 Loop:   jsr     MON_COUT ;print error message
         iny
-; 
+;
 ; Print error message routine entry point.
-; 
+;
 ERRORMESS:
         lda     ErrMsg00,y
         bmi     Loop
@@ -766,9 +766,9 @@ GETCMD: tya
 
 ErrTooLong:
         ldy     #<ErrMsg01 ;"TOO LONG"
-; 
+;
 ; Print error message and goto mainline.
-; 
+;
 ERRMESS:
         jsr     PRINTERR
 ; DOS 3.3 chains here when processing errors.
@@ -877,7 +877,7 @@ LE470:  beq     Return2
         lda     SYNTABLNDX,y
 LE491:  asl     A       ;double
         tay
-        lda     #>SYNTABL-118 ;[#>SYNTABL/2]
+        lda     #>(SYNTABL>>1) ;[#>SYNTABL/2]
         rol     A
         sta     SYNPAG+1
 LE498:  bne     @LE49B
@@ -955,13 +955,13 @@ LE4CD:  ldy     SYNSTKH,x
 @LE517: ldy     #<ErrMsg00 ;">32767"
         bpl     LE4A6   ;(always)
 
-; 
+;
 ; Prints a 16-bit number in decimal.
-; 
+;
 ; On entry:
 ;   A-reg: high byte
 ;   X-reg: low byte
-; 
+;
 PRDEC:  sta     PCON+1
         stx     PCON
         ldx     #$04
@@ -1025,7 +1025,7 @@ LE576:  lda     P3+1    ;P2 = P3
         lda     P2+1
         sbc     HIMEM+1
         bcs     @Return
-; 
+;
         ldy     #$01
         lda     (P2),y
         sbc     ACC
@@ -1050,22 +1050,22 @@ LE576:  lda     P3+1    ;P2 = P3
 @Return:
         rts
 
-; 
+;
 ; Token $0b NEW
 ;   turn off AUTO
 ;   remove program
 ;   fall into CLR
-; 
+;
 NEW:    lsr     AUTOFLAG ;manual
         lda     HIMEM   ;PP = HIMEM
         sta     PP
         lda     HIMEM+1
         sta     PP+1
-; 
+;
 ; Token $0c CLR
 ;   remove variables
 ;   remove FOR loops and GOSUBs
-; 
+;
 CLR:    lda     LOMEM   ;PV = LOMEM
         sta     PV
         lda     LOMEM+1
@@ -1080,7 +1080,7 @@ CLR:    lda     LOMEM   ;PV = LOMEM
 
 unref_e5cc:
         lda     SRCH
-; 
+;
 ErrMemFull:
         jmp     MEMFULL
 
@@ -1252,9 +1252,9 @@ LE684:  lda     (PX),y
 
 @LE6FC: jmp     (ACC)
 
-; 
+;
 ; Get next verb to use.
-; 
+;
 GETVERB:
         inc     PX
         bne     @NoInc
@@ -1271,9 +1271,9 @@ LE70A:  dex
 @LE710: ldy     #<ErrMsg12+3 ;"PPED AT"
 LE712:  jmp     ERRMESS
 
-; 
+;
 ; Get a 16-bit value.
-; 
+;
 GET16BIT:
         ldy     #$00
         lda     NOUNSTKL,x
@@ -1294,17 +1294,17 @@ GET16BIT:
 @LE731: inx
         rts
 
-; 
+;
 ; Token $16 =
 ;   num var logic op
 ;   IF X = 13 THEN END
-; 
+;
 TE733:  jsr     TE74A
-; 
+;
 ; Token $37 NOT
 ;   numeric
 ;   IF NOT X THEN END
-; 
+;
 NOT:    jsr     GET16BIT
         tya             ;A-reg = 0
         jsr     LE708
@@ -1317,20 +1317,20 @@ NOT:    jsr     GET16BIT
 @Return:
         rts
 
-; 
+;
 ; Token $17 #
 ;   num var logic op
 ;   IF X # 13 THEN END
-; 
+;
 ; Token $1b <>
 ;   num var logic op
 ;   IF X <> 13 THEN END
-; 
+;
 TE74A:  jsr     SUBTRACT
         jsr     SGN
-; 
+;
 ; Token $31 ABS
-; 
+;
 ABS:    jsr     GET16BIT
         bit     ACC+1
         bmi     LE772
@@ -1338,9 +1338,9 @@ LE757:  dex
 Return3:
         rts
 
-; 
+;
 ; Token $30 SGN
-; 
+;
 SGN:    jsr     GET16BIT
         lda     ACC+1   ;is ACC zero?
         bne     @LE764
@@ -1351,11 +1351,11 @@ SGN:    jsr     GET16BIT
         sta     NOUNSTKC,x
         bit     ACC+1
         bmi     Return3
-; 
+;
 ; Token $36 -
 ;   unary sign of number
 ;   X = -5
-; 
+;
 NEGATE: jsr     GET16BIT
 LE772:  tya             ;A-reg = 0
         sec
@@ -1368,18 +1368,18 @@ Err32767:
         ldy     #<ErrMsg00 ;">32767"
         bpl     LE712   ;(always)
 
-; 
+;
 ; Token $13 -
 ;   num op
 ;   X = 27 - 2
-; 
+;
 SUBTRACT:
         jsr     NEGATE  ;negate, then add
-; 
+;
 ; Token $12 +
 ;   num op
 ;   X = 27 + 2
-; 
+;
 TE785:  jsr     GET16BIT
         lda     ACC     ;AUX = ACC
         sta     AUX
@@ -1394,17 +1394,17 @@ LE793:  clc
         adc     AUX+1
         bvs     Err32767
 LE7A1:  sta     NOUNSTKC,x
-; 
+;
 ; Token $35 +
 ;   unary sign of number
 ;   X = +5
-; 
+;
 POSITIVE:
         rts
 
-; 
+;
 ; Token $50 TAB
-; 
+;
 TAB:    jsr     GETBYTE
         tay
         bne     @LE7AD
@@ -1413,9 +1413,9 @@ TAB:    jsr     GETBYTE
 @LE7AD: dey
 LE7AE:  jmp     LF3F4
 
-; 
+;
 ; Comma tab to next tab posn (every 8 spaces).
-; 
+;
 LE7B1:  lda     MON_CH  ;get horiz posn
         ora     #$07    ;set bits 0-2
         tay
@@ -1431,21 +1431,21 @@ unref_e7bc:
 
         .byte   $00,$00
 
-; 
+;
 ; Token $49 ,
 ;   num print follows
 ;   PRINT A$,X
-; 
+;
 TE7C1:  jsr     LE7B1
-; 
+;
 ; Token $46 ;
 ;   num print follows
 ;   PRINT A$ ; X
-; 
+;
 ; Token $62 PRINT
 ;   num value
 ;   PRINT 123: PRINT X: PRINT ASC(A$)
-; 
+;
 PRINTNUM:
         jsr     GET16BIT
 LE7C7:  lda     ACC+1   ;is it positive?
@@ -1463,9 +1463,9 @@ LE7C7:  lda     ACC+1   ;is it positive?
         ldx     ACC+1   ;restore X-reg
         rts
 
-; 
+;
 ; Token $0d AUTO
-; 
+;
 AUTO:   jsr     GET16BIT
         lda     ACC     ;AUTOLN = ACC
         sta     AUTOLN
@@ -1479,24 +1479,24 @@ LE7F3:  sta     AUTOINC
         sty     AUTOINC+1
         rts
 
-; 
+;
 ; Token $0e ,
 ;   AUTO 10,20
-; 
+;
 COMMA_AUTO:
         jsr     GET16BIT
         lda     ACC
         ldy     ACC+1
         bpl     LE7F3   ;(always)
 
-; 
+;
 ; Token $56 =
 ;   FOR X = 5 TO 10
-; 
+;
 ; Token $71 =
 ;   num - non-conditional
 ;   X = 5
-; 
+;
 TE801:  jsr     GET16BIT
         lda     NOUNSTKL,x
         sta     AUX
@@ -1508,72 +1508,72 @@ TE801:  jsr     GET16BIT
         lda     ACC+1
         jmp     LF207
 
-; 
+;
 ; Token $25 THEN
 ;   IF X = 3 THEN Y = 5
-; 
+;
 ; Token $5e LET
-; 
+;
 LET:    rts
 
-; 
+;
 ; Token $00
 ;   internal begin-of-line
-; 
+;
 BEGIN_LINE:
         pla
         pla
-; 
+;
 ; Token $03 :
 ;   statement separation
 ;   X = 5: A$ = "HELLO"
-; 
+;
 COLON:  bit     CRFLAG
         bpl     Return4
-; 
+;
 ; Token $63 PRINT
 ;   dummy print
 ;   PRINT: PRINT
-; 
+;
 PRINT_CR:
         jsr     MON_CROUT
-; 
+;
 ; Token $47 ;
 ;   end of print statement
 ;   PRINT A$;
-; 
+;
 TE820:  lsr     CRFLAG
 Return4:
         rts
 
-; 
+;
 ; Token $22 (
 ;   string DIM
 ;   DIM A$(X)
-; 
+;
 ; Token $34 (
 ;   num DIM
 ;   DIM X(5)
-; 
+;
 ; Token $38 (
 ;   logic statements and num operations
 ;   IF C and (A=14 OR B=12) THEN X=(27+3)/13
-; 
+;
 ; Token $3f (
 ;   used after PEEK, RND, SGN, ABS, and PDL
-; 
+;
 TE823:  ldy     #$ff
         sty     PRFLAG  ;PRFLAG = $ff
-; 
+;
 ; Token $72 )
 ;   the only right parenthesis token
-; 
+;
 RIGHT_PAREN:
         rts
 
-; 
+;
 ; Token $60 IF
-; 
+;
 IF:     jsr     LEFCD
         beq     @LE834
         lda     #$25    ;THEN token?
@@ -1583,41 +1583,41 @@ IF:     jsr     LEFCD
 @LE834: inx
         rts
 
-; 
+;
 ; Run without CLR
 ;   DOS 3.3 chains here to run a program
-; 
+;
 RUNWARM:
         lda     PP
         ldy     PP+1
         bne     LE896   ;(always)
 
-; 
+;
 ; Token $5c GOSUB
-; 
+;
 GOSUB:  ldy     #<ErrMsg08 ;"16 GOSUBS"
         lda     GOSUBNDX
         cmp     #16     ;sixteen GOSUBs?
         bcs     JmpERRMESS1 ;yes, error
         tay
         inc     GOSUBNDX
-; 
+;
         lda     PX
         sta     STK_00,y
         lda     PX+1
         sta     STK_10,y
-; 
+;
         lda     PR
         sta     STK_20,y
         lda     PR+1
         sta     STK_30,y
-; 
+;
 ; Token $24 THEN
 ;   followed by a line number
 ;   IF X=3 THEN 10
-; 
+;
 ; Token $5f GOTO
-; 
+;
 GOTO:   jsr     GET16BIT
         jsr     LE56D
         bcc     @LE867
@@ -1661,9 +1661,9 @@ LE896:  cmp     HIMEM
 JmpERRMESS1:
         jmp     ERRMESS
 
-; 
+;
 ; Token $5b RETURN
-; 
+;
 RETURN: ldy     #<ErrMsg09 ;"BAD RETURN"
         lda     GOSUBNDX
         beq     JmpERRMESS1
@@ -1688,18 +1688,18 @@ STOPPED_AT:
         iny
         lda     (PR),y
         jsr     PRDEC
-; 
+;
 ; Token $51 END
-; 
+;
 END:    jmp     WARM
 
 LE8D6:  dec     FORNDX
-; 
+;
 ; Token $59 NEXT
-; 
+;
 ; Token $5a ,
 ;   NEXT X,Y
-; 
+;
 NEXT:   ldy     #<ErrMsg11 ;"BAD NEXT"
         lda     FORNDX
 JmpERRMESS2:
@@ -1715,7 +1715,7 @@ JmpERRMESS2:
         sta     AUX
         lda     STK_70-1,y
         sta     AUX+1
-; 
+;
         jsr     GET16BIT
         dex
         jsr     LE793
@@ -1735,21 +1735,21 @@ JmpERRMESS2:
         beq     @LE925
         eor     STK_70-1,y
         bpl     @LE937
-; 
+;
 @LE925: lda     STK_80-1,y
         sta     PR
         lda     STK_90-1,y
         sta     PR+1
-; 
+;
         ldx     STK_A0-1,y
         lda     STK_B0-1,y
         bne     LE8BE
 @LE937: dec     FORNDX
         rts
 
-; 
+;
 ; Token $55 FOR
-; 
+;
 FOR:    ldy     #<ErrMsg10 ;"16 FORS"
         lda     FORNDX
         cmp     #16     ;sixteen FORs?
@@ -1763,27 +1763,27 @@ FOR:    ldy     #<ErrMsg10 ;"16 FORS"
 
         .byte   $60
 
-; 
+;
 ; Token $57 TO
-; 
+;
 TO:     jsr     GET16BIT
         ldy     FORNDX
-; 
+;
         lda     ACC
         sta     STK_C0-1,y
         lda     ACC+1
         sta     STK_D0-1,y
-; 
+;
         lda     #$01
         sta     STK_60-1,y
         lda     #$00
 LE966:  sta     STK_70-1,y
-; 
+;
         lda     PR
         sta     STK_80-1,y
         lda     PR+1
         sta     STK_90-1,y
-; 
+;
         lda     PX
         sta     STK_A0-1,y
         lda     PX+1
@@ -1792,7 +1792,7 @@ LE966:  sta     STK_70-1,y
 
         .byte   $20
         .byte   $15
-; 
+;
 TABLE1: .byte   $00,$00,$00,$ab,$03,$03,$03,$03
         .byte   $03,$03,$03,$03,$03,$03,$03,$03
         .byte   $03,$03,$3f,$3f,$c0,$c0,$3c,$3c
@@ -1809,9 +1809,9 @@ TABLE1: .byte   $00,$00,$00,$ab,$03,$03,$03,$03
         .byte   $03,$03,$03,$03,$03,$03,$03,$03
         .byte   $03,$03,$aa,$ff,$03,$03,$03,$03
         .byte   $03,$03,$03,$03,$03,$03,$03,$03
-; 
+;
 ; Token address tables (verb dispatch tables).
-; 
+;
 VERBADRL:
         .byte   <BEGIN_LINE
         .byte   $ff
@@ -2070,9 +2070,9 @@ VERBADRH:
         .byte   >TRACE
         .byte   >PRSLOT
         .byte   >INSLOT
-; 
+;
 ; Error messages.
-; 
+;
 ErrMsg00:
         .byte   $be,$b3,$b2,$b7,$b6,$37
 ErrMsg01:
@@ -2128,11 +2128,11 @@ LEB9A:  lsr     RUNFLAG ;pos
         ldy     #<ErrMsg20 ;"RETYPE LINE\r?"
         bne     LEBAC   ;(always)
 
-; 
+;
 ; Token $54 INPUT
 ;   num with no prompt
 ;   INPUT X
-; 
+;
 TEBAA:  ldy     #<ErrMsg21 ;"?" for INPUT
 LEBAC:  jsr     ERRORMESS
         stx     ACC
@@ -2149,11 +2149,11 @@ LEBAC:  jsr     ERRORMESS
         jsr     LE491
         inc     RUNFLAG
         ldx     ACC
-; 
+;
 ; Token $27 ,
 ;   num inputs
 ;   INPUT "QUANTITY",Q
-; 
+;
 TEBCB:  ldy     TXTNDX
         asl     A
 @LEBCE: sta     ACC
@@ -2181,23 +2181,23 @@ TEBCB:  ldy     TXTNDX
 @LEBFA: jmp     TE801
 
         .res    3,$ff
-; 
+;
 ; Token / syntax table.
-; 
-; Each entry has a token, stored in reverse, with character values adjusted. 
+;
+; Each entry has a token, stored in reverse, with character values adjusted.
 ; For example, "TRACE" is stored:
 ;   "E"+32, "C"-32, "A"-32, "R"-32", "T"-32
 ;   $e5     $a3     $a1     $b2      $b4
-; 
+;
 SYNTABL:
         .byte   $50,$20,$4f,$c0,$f4,$a1,$e4,$af
         .byte   $ad,$f2,$af,$e4,$ae,$a1,$f0,$a5
         .byte   $b4,$b3,$ef,$b4,$ee,$a5,$a8,$b4
-; 
+;
         .byte   $5c,$80,$00,$40,$60,$8d,$60,$8b
         .byte   $7f,$1d,$20,$7e,$8c,$33,$00,$00
         .byte   $60,$03,$bf,$12
-; 
+;
         .byte   $47,$83,$ae,$a9,$67,$83,$b2,$b0
         .byte   $e5,$a3,$a1,$b2,$b4,$79,$b0,$b3
         .byte   $a4,$69,$b0,$b3,$a4,$e5,$a3,$a1
@@ -2226,7 +2226,7 @@ SYNTABL:
         .byte   $ae,$a9,$7f,$05,$28,$b4,$b5,$b0
         .byte   $ae,$a9,$7f,$05,$2a,$b4,$b5,$b0
         .byte   $ae,$a9,$e4,$ae,$a5
-; 
+;
 SYNTABL2:
         .byte   $00
         .byte   $47,$a2,$a1,$b4,$7f,$0d,$30,$ad
@@ -2266,21 +2266,21 @@ SYNTABL2:
         .byte   $7a,$7e,$9a,$22,$20,$00,$60,$03
         .byte   $bf,$60,$03,$bf,$1f
 
-; 
+;
 ; Token $48 ,
 ;   string prints
 ;   PRINT T,A$
-; 
+;
 TEE00:  jsr     LE7B1
-; 
+;
 ; Token $45 ;
 ;   string prints
 ;   PRINT anytype ; string
-; 
+;
 ; Token $61 PRINT
 ;   string var or literal
 ;   PRINT A$: PRINT "HELLO"
-; 
+;
 PRINTSTR:
         inx
         inx
@@ -2301,9 +2301,9 @@ PRINTSTR:
         sta     CRFLAG  ;CRFLAG = $ff
         rts
 
-; 
+;
 ; Token $3b LEN(
-; 
+;
 LEN:    inx
         lda     #$00
         sta     NOUNSTKH,x
@@ -2323,10 +2323,10 @@ GETBYTE:
         lda     ACC
         rts
 
-; 
+;
 ; Token $68 ,
 ;   PLOT 20,15
-; 
+;
 COMMA_PLOT:
         jsr     GETBYTE
         ldy     TXTNDX
@@ -2336,21 +2336,21 @@ COMMA_PLOT:
         bcs     RANGERR
         jmp     MON_PLOT
 
-; 
+;
 ; Token $66 COLOR=
-; 
+;
 TEE4E:  jsr     GETBYTE
         jmp     MON_SETCOL
 
-; 
+;
 ; Token $0f MAN
-; 
+;
 TEE54:  lsr     AUTOFLAG ;manual
         rts
 
-; 
+;
 ; Token $6f VTAB
-; 
+;
 IVTAB:  jsr     LF3B3
         cmp     #24
         bcs     RANGERR
@@ -2366,9 +2366,9 @@ RANGERR:
         ldy     #<ErrMsg16 ;"RANGE"
         bne     JmpERRMESS3
 
-; 
+;
 ; Divide routine.
-; 
+;
 LEE6C:  jsr     LE254
         lda     AUX     ;is AUX zero?
         bne     @LEE7A
@@ -2396,16 +2396,16 @@ LEE6C:  jsr     LE254
 
         .byte   $ff,$ff,$ff,$ff,$ff,$ff
 
-; 
+;
 ; Token $4d CALL
-; 
+;
 CALL:   jsr     GET16BIT
         jmp     (ACC)
 
-; 
+;
 ; Token $6a ,
 ;   HLIN 10,20 AT 30
-; 
+;
 COMMA_HLIN:
         jsr     GETBYTE
         cmp     TXTNDX
@@ -2413,10 +2413,10 @@ COMMA_HLIN:
         sta     MON_H2
         rts
 
-; 
+;
 ; Token $6b AT
 ;   HLIN 10,20 AT 30
-; 
+;
 AT_HLIN:
         jsr     GETBYTE
         cmp     #48
@@ -2424,10 +2424,10 @@ AT_HLIN:
         ldy     TXTNDX
         jmp     MON_HLINE
 
-; 
+;
 ; Token $6d ,
 ;   VLIN 10,20 AT 30
-; 
+;
 COMMA_VLIN:
         jsr     GETBYTE
         cmp     TXTNDX
@@ -2435,10 +2435,10 @@ COMMA_VLIN:
         sta     MON_V2
         rts
 
-; 
+;
 ; Token $6e AT
 ;   VLIN 10,20 AT 30
-; 
+;
 AT_VLIN:
         jsr     GETBYTE
         cmp     #40
@@ -2469,44 +2469,44 @@ LEEE4:  jsr     LF23F
         bcs     BcsRANGERR
 @LEEF5: rts
 
-; 
+;
 ; Token $2e PEEK
 ;   uses tken $3f (
-; 
+;
 PEEK:   jsr     GET16BIT
         lda     (ACC),y
         sty     NOUNSTKC-1,x
         jmp     LE708
 
-; 
+;
 ; Token $65 ,
 ;   POKE 20000,5
-; 
+;
 ; Token $67 PLOT
-; 
+;
 ; Token $69 HLIN
-; 
+;
 ; Token $6c VLIN
-; 
+;
 GETVAL255:
         jsr     GETBYTE
         lda     ACC
         sta     TXTNDX
         rts
 
-; 
+;
 ; Token $64 POKE
-; 
+;
 POKE:   jsr     GET16BIT
         lda     TXTNDX
         sta     (ACC),y
         rts
 
-; 
+;
 ; Token $15 /
 ;   num op. uses $38 (
 ;   A = 27 / 2
-; 
+;
 DIVIDE: jsr     LEE6C
         lda     ACC     ;P3 = ACC
         sta     P3
@@ -2514,23 +2514,23 @@ DIVIDE: jsr     LEE6C
         sta     P3+1
         jmp     MultEnd
 
-; 
+;
 ; Token $44 ,
 ;   next var in DIM is num
 ;   DIM X(5),A(5)
-; 
+;
 ; Token $4f DIM
 ;   num var. uses tkn $22 (
 ;   DIM A(5)
-; 
+;
 DIMNUM: jsr     LEEE4
         jmp     LE134
 
-; 
+;
 ; Token $2d (
 ;   var array
 ;   X(12)
-; 
+;
 TEF24:  jsr     LEEE4
         ldy     NOUNSTKH,x
         lda     NOUNSTKL,x
@@ -2554,10 +2554,10 @@ TEF24:  jsr     LEEE4
         bcs     BcsRANGERR ;"RANGE"
         jmp     TE823
 
-; 
+;
 ; Token $2f RND
 ;   uses tken $3f (
-; 
+;
 RND:    jsr     GET16BIT
         lda     MON_RNDL
         jsr     LE708
@@ -2614,23 +2614,23 @@ JmpBcsRANGEERR:
 
         .byte   $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
 
-; 
+;
 ; Token $26 ,
 ;   string inputs
 ;   INPUT "WHO",W$
-; 
+;
 ; Token $52 INPUT
 ;   string with no prompt
 ;   INPUT S$
-; 
+;
 TEFB6:  jsr     INPUTSTR
         jmp     LEFBF
 
-; 
+;
 ; Token $53 INPUT
 ;   string or num with prompt
 ;   INPUT "WHO",W$: INPUT "QUANTITY",Q
-; 
+;
 INPUT_PROMPT:
         jsr     PRINTSTR
 LEFBF:  lda     #$ff
@@ -2660,17 +2660,17 @@ LEFE4:  cmp     NOUNSTKH,x
         clc
 @LEFE9: jmp     LE102
 
-; 
+;
 ; Token $08 RUN
 ;   run from first line of program
-; 
+;
 RUN:    jsr     CLR
         jmp     RUNWARM
 
-; 
+;
 ; Token $07 RUN
 ;   RUN 100
-; 
+;
 RUNNUM: jsr     CLR
         jmp     GOTO
 
@@ -2679,11 +2679,11 @@ LEFF8:  cpx     #$80
         dey
 @LEFFD: jmp     LE00C
 
-; 
+;
 ; Cold start.
 ;   set LOMEM, find HIMEM
 ;   fall into NEW
-; 
+;
 COLD:   ldy     #$00
         sty     NOUNSTKC
         sty     LOMEM   ;LOMEM = $0800
@@ -2727,9 +2727,9 @@ from_unref:
 
         .byte   $ff,$ff
 
-; 
+;
 ; Token $10 HIMEM:
-; 
+;
 VHIMEM: jsr     GET16BIT
         stx     XSAVE
         ldx     #$fe
@@ -2742,7 +2742,7 @@ VHIMEM: jsr     GET16BIT
         inx
         bne     @Loop1
         bcc     LF0AF
-; 
+;
         dex             ;X-reg = $ff
 @Loop2: lda     PP+1,x  ;P3 = PP
         sta     P3+1,x
@@ -2773,7 +2773,7 @@ NoInc3: lda     P3      ;compare P3 and HIMEM
         lda     P3+1
         sbc     HIMEM+1
         bcc     Loop3
-; 
+;
 LF099:  ldx     #$fe
 @Loop:  lda     P2+2,x  ;P2 = HIMEM
         sta     HIMEM+2,x
@@ -2802,9 +2802,9 @@ LF0AF:  lda     ACC
         bcc     LF0AB
         bcs     LF099   ;(always)
 
-; 
+;
 ; Token $11 LOMEM:
-; 
+;
 VLOMEM: jsr     GET16BIT
         ldy     ACC
         cpy     #PP
@@ -2818,9 +2818,9 @@ BcsJmpMEMFULL:
         sta     LOMEM+1
         jmp     CLR
 
-; 
+;
 ; Token $04 LOAD
-; 
+;
 LOAD:   stx     XSAVE
         jsr     SETHDR
         jsr     MON_READ
@@ -2876,9 +2876,9 @@ SETPRG: lda     PP,x
 
 unref_f140:
         stx     XSAVE
-; 
+;
 ; Token $05 SAVE
-; 
+;
 SAVE:   sec             ;ACC = HIMEM - PP
         ldx     #$ff
 @Loop:  lda     HIMEM+1,x
@@ -2886,7 +2886,7 @@ SAVE:   sec             ;ACC = HIMEM - PP
         sta     ACC+1,x
         inx
         beq     @Loop
-; 
+;
         jsr     SETHDR
         jsr     MON_WRITE
         ldx     #$01
@@ -2899,9 +2899,9 @@ SAVE:   sec             ;ACC = HIMEM - PP
 PRTERR: jsr     ERRORMESS
         jmp     MON_BELL
 
-; 
+;
 ; Token $77 POP
-; 
+;
 POP:    lda     GOSUBNDX
         bne     @LF16E
         jmp     RETURN
@@ -2909,16 +2909,16 @@ POP:    lda     GOSUBNDX
 @LF16E: dec     GOSUBNDX
         rts
 
-; 
+;
 ; Token $7d TRACE
-; 
+;
 TRACE:  lda     #$ff
         sta     NOUNSTKC
         rts
 
-; 
+;
 ; Token $7a NOTRACE
-; 
+;
 NOTRACE:
         lsr     NOUNSTKC ;clear bit 7
         rts
@@ -2942,9 +2942,9 @@ unref_f192:
 Return5:
         rts
 
-; 
+;
 ; Indices into SYNTABL.
-; 
+;
 SYNTABLNDX:
         .byte   $c1,$00,$7f,$d1,$cc,$c7,$cf,$ce
         .byte   $c5,$9a,$98,$8d,$96,$95,$93,$bf
@@ -2982,7 +2982,7 @@ LF1C9:  ldy     LOMEM
         tay
         pla
         bne     @Loop1
-; 
+;
 @LF1F0: pla
         ldy     #$00
 @LF1F3: lda     (SRCH),y
@@ -3038,52 +3038,52 @@ LF23F:  jsr     GET16BIT
 Return7:
         rts
 
-; 
+;
 ; Token $1c <
 ;   IF X < 13 THEN END
-; 
+;
 TF249:  jsr     TF25B
         bne     JmpNOT
-; 
+;
 ; Token $19 >
 ;   IF X > 13 THEN END
-; 
+;
 TF24E:  jsr     TF253
         bne     JmpNOT
-; 
+;
 ; Token $1a <=
 ;   IF X <= 13 THEN END
-; 
+;
 TF253:  jsr     SUBTRACT
         jsr     NEGATE
         bvc     LF25E
-; 
+;
 ; Token $18 >=
 ;   IF X >= 13 THEN END
-; 
+;
 TF25B:  jsr     SUBTRACT
 LF25E:  jsr     SGN
         lsr     NOUNSTKL,x
 JmpNOT: jmp     NOT
 
-; 
+;
 ; Token $1d AND
-; 
+;
 VAND:   jsr     LEFC9
         ora     NOUNSTKL-1,x
         bpl     LF272   ;(always?)
-; 
+;
 ; Token $1e OR
-; 
+;
 VOR:    jsr     LEFC9
         and     NOUNSTKL-1,x
 LF272:  sta     NOUNSTKL,x
         bpl     JmpNOT
         jmp     LEFC9
 
-; 
+;
 ; Token $58 STEP
-; 
+;
 STEP:   jsr     GET16BIT
         ldy     FORNDX
         lda     ACC
@@ -3130,16 +3130,16 @@ LF288:  sta     STK_50,y
 @Return:
         rts
 
-; 
+;
 ; Token $78 NODSP
 ;   string var
-; 
+;
 NODSP_STR:
         inx
-; 
+;
 ; Token $79 NODSP
 ;   num var
-; 
+;
 NODSP_NUM:
         lda     #$00
 LF2E3:  pha
@@ -3163,25 +3163,25 @@ LF2F8:  cmp     #$85
 @LF2FF: ldy     #$02
         jmp     LE448
 
-; 
+;
 ; Token $7b DSP
 ;   string var
-; 
+;
 DSP_STR:
         inx             ;[DSP_NUM in paulrsm disasm]
-; 
+;
 ; Token $7c DSP
 ;   num var
-; 
+;
 DSP_NUM:
         lda     #$01    ;[DSP_STR in paulrsm disasm]
         bne     LF2E3   ;(always)
 
         .byte   $e8
 
-; 
+;
 ; Token $06 CON
-; 
+;
 CON:    lda     NOUNSTKH ;PR = NOUNSTKH
         sta     PR
         lda     NOUNSTKH+1
@@ -3194,9 +3194,9 @@ unref_f319:
         lda     #$01
         bne     LF2E3
 
-; 
+;
 ; Token $3c ASC(
-; 
+;
 ASC:    lda     NOUNSTKL,x
         cmp     NOUNSTKH,x
         bcc     @LF326
@@ -3214,9 +3214,9 @@ ASC:    lda     NOUNSTKL,x
         jsr     LE708
         jmp     LF404
 
-; 
+;
 ; Token $32 PDL
-; 
+;
 PDL:    jsr     GETBYTE
         stx     XSAVE
         and     #$03
@@ -3251,9 +3251,9 @@ LF366:  jsr     LE280
         tay
         rts
 
-; 
+;
 ; Token $20 ^
-; 
+;
 EXP:    jsr     GET16BIT
         lda     ACC+1
         bpl     @LF380
@@ -3275,7 +3275,7 @@ EXP:    jsr     GET16BIT
         lda     #$01
         jsr     LE708
         sty     NOUNSTKC,x
-; 
+;
 @Loop:  lda     SRCH    ;srch = SRCH - 1
         bne     @NoDec
         dec     SRCH+1  ;is SRCH negative?
@@ -3295,11 +3295,11 @@ LF3B3:  jsr     GETBYTE
 Return8:
         rts
 
-; 
+;
 ; Token $4a ,
 ;   end of PRINT statement
 ;   PRINT A$,
-; 
+;
 TF3BA:  jsr     LE7B1
         lsr     CRFLAG  ;pos
         rts
@@ -3310,9 +3310,9 @@ unref_f3c0:
         jsr     LF02E
         jmp     LE883
 
-; 
+;
 ; Token $7e PR#
-; 
+;
 PRSLOT: jsr     GETBYTE
         stx     XSAVE
         jsr     MON_OUTPORT
@@ -3361,9 +3361,9 @@ LF409:  ldy     #$00
         sta     CRFLAG  ;CRFLAG = $ff
         rts
 
-; 
+;
 ; Token $7f IN#
-; 
+;
 INSLOT: jsr     GETBYTE
         stx     XSAVE
         jsr     MON_INPORT

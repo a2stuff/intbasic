@@ -4,7 +4,7 @@ LDFLAGS := --config IntegerBASIC_cc65.cfg
 
 OUTDIR := out
 
-TARGETS := $(OUTDIR)/IntegerBASIC_cc65.BIN
+TARGETS := $(OUTDIR)/intbasic.system.SYS
 
 XATTR := $(shell command -v xattr 2> /dev/null)
 
@@ -14,7 +14,7 @@ all: $(OUTDIR) $(TARGETS)
 $(OUTDIR):
 	mkdir -p $(OUTDIR)
 
-HEADERS := $(wildcard *.inc)
+HEADERS := $(wildcard *.inc) IntegerBASIC_cc65.s
 
 clean:
 	rm -f $(OUTDIR)/*.o
@@ -25,11 +25,8 @@ clean:
 $(OUTDIR)/%.o: %.s $(HEADERS)
 	ca65 $(CAFLAGS) $(DEFINES) --listing $(basename $@).list -o $@ $<
 
-$(OUTDIR)/%.BIN $(OUTDIR)/%.SYS: $(OUTDIR)/%.o
+$(OUTDIR)/%.SYS: $(OUTDIR)/%.o
 	ld65 $(LDFLAGS) -o $@ $<
 ifdef XATTR
 	xattr -wx prodos.AuxType '00 20' $@
 endif
-
-$(OUTDIR)/%.CMD: $(OUTDIR)/%.cmd.o
-	ld65 $(LDFLAGS) -o $@ $<
