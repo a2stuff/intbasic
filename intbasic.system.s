@@ -1,4 +1,5 @@
         .include "apple2.inc"
+        .include "opcodes.inc"
 
 ;;; Monitor Equates
 A1L     =       $3c     ;general purpose
@@ -14,26 +15,24 @@ MLI             := $BF00
 BITMAP          := $BF58
 BITMAP_SIZE     =  24
 
-
-;;; Filing Calls
+QUIT            = $65
+GET_FILE_INFO   = $C4
 OPEN            = $C8
-NEWLINE         = $C9
 READ            = $CA
-WRITE           = $CB
 CLOSE           = $CC
-FLUSH           = $CD
-SET_MARK        = $CE
-GET_MARK        = $CF
-SET_EOF         = $D0
 GET_EOF         = $D1
-SET_BUF         = $D2
-GET_BUF         = $D3
 
 .macro SET16 addr, const
         lda     #<(const)
         sta     addr
         lda     #>(const)
         sta     addr+1
+.endmacro
+
+.macro MLI_CALL call, params
+        jsr     MLI
+        .byte   call
+        .addr   params
 .endmacro
 
 ;;; ============================================================
@@ -76,7 +75,7 @@ start:
         jsr     MOVE
 
 ;;; --------------------------------------------------
-;;; Relocate rest of this to $300
+;;; Relocate rest of this to $280
 
         relo := $300
         SET16   A1L, proc
@@ -89,17 +88,46 @@ start:
 ;;; --------------------------------------------------
 ;;; Load program (if given) and invoke Integer BASIC
 
+        __saved_org__ .set *
         .proc proc
+        .org ::relo
 
         lda     path
-        bne     :+
+        bne     have_path
+
+        ;; ----------------------------------------
         ;; No path - do cold start
         jmp     BASIC
-:
 
+        ;; ----------------------------------------
         ;; Have path
+have_path:
+        ;; Check type, bail if not INT
+        MLI_CALL GET_FILE_INFO, gfi_params
+        bcs     quit
+        lda     gfi_file_type
+        cmp     #$FA            ; INT
+        bne     quit
+
+        ;; Open file
+        MLI_CALL OPEN, open_params
+        bcs     quit
+        lda     open_ref_num
+        sta     geteof_ref_num
+        sta     read_ref_num
+        sta     close_ref_num
+
+        ;; Get size
+        MLI_CALL GET_EOF, geteof_params
+        bcs     close
+
+        ;; TODO: Calculate load address
+
+        MLI_CALL READ, read_params
+        bcs     close
 
         ;; TODO: Do as much of COLD/WARM as needed
+        ;;   * When is it safe to jsr COLD?
         ;; TODO: Load program
         ;; TODO: Twiddle pointers
         ;; TODO: Set WARM to return here and QUIT
@@ -107,8 +135,68 @@ start:
 
         brk
 
+close:
+        php
+        MLI_CALL CLOSE, close_params
+        plp
+        bcs     quit
+
+        ;; TODO: Invoke BASIC!
+        brk
+
+quit:
+        MLI_CALL QUIT, quit_params
+        brk
+
+
+gfi_params:
+gfi_param_count:        .byte   $A   ; in
+gfi_pathname:           .addr   path ; in
+gfi_access:             .byte   0    ; out
+gfi_file_type:          .byte   0    ; out
+gfi_aux_type:           .word   0    ; out
+gfi_storage_type:       .byte   0    ; out
+gfi_blocks_used:        .word   0    ; out
+gfi_mod_date:           .word   0    ; out
+gfi_mod_time:           .word   0    ; out
+gfi_create_date:        .word   0    ; out
+gfi_create_time:        .word   0    ; out
+
+        IO_BUFFER := $800       ; ???
+
+open_params:
+open_param_count:       .byte   3         ; in
+open_pathname:          .addr   path      ; in
+open_io_buffer:         .addr   IO_BUFFER ; in
+open_ref_num:           .byte   0         ; out
+
+geteof_params:
+geteof_param_count:     .byte   2 ; in
+geteof_ref_num:         .byte   0 ; in, populated at runtime
+geteof_eof:             .res 3, 0 ; out
+
+read_params:
+read_param_count:       .byte   5 ; in
+read_ref_num:           .byte   0 ; in, populated at runtime
+read_data_buffer:       .addr   0 ; in, populated at runtime
+read_request_count:     .word   0 ; in, populated at runtime
+read_trans_count:       .word   0 ; out
+
+close_params:
+close_param_count:      .byte   1 ; in
+close_ref_num:          .byte   0 ; in, populated at runtime
+
+quit_params:
+quit_param_count:       .byte   4 ; in
+quit_type:              .byte   0 ; in
+quit_res1:              .word   0 ; reserved
+quit_res2:              .byte   0 ; reserved
+quit_res3:              .word   0 ; reserved
+
+        .assert * < $3E0, error, "proc too big"
         .endproc
         sizeof_proc = .sizeof(proc)
+        .org __saved_org__ + sizeof_proc
 
 ;;; ============================================================
 ;;; Integer BASIC Implementation
