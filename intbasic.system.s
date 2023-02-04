@@ -39,6 +39,10 @@ GET_EOF         = $D1
 ;;; System Program
 ;;; ============================================================
 
+        IO_BUFFER := $B800      ; $B800-$BEFF are unused
+
+
+
 ;;; ProDOS Interpreter Protocol
 ;;; ProDOS 8 Technical Reference Manual
 ;;; 5.1.5.1 - Starting System Programs
@@ -51,6 +55,7 @@ start:
 
 ;;; --------------------------------------------------
 ;;; Configure system bitmap
+
         ldx     #BITMAP_SIZE-1
         lda     #0
 :       sta     BITMAP,x
@@ -64,7 +69,8 @@ start:
         sta     BITMAP+$A*2     ; Pages $A0-$A7
         sta     BITMAP+$A*2+1   ; Pages $A8-$AF
         sta     BITMAP+$B*2     ; Pages $B0-$B7
-        sta     BITMAP+$B*2+1   ; Pages $B8-$BF (last is ProDOS GP)
+        lda     #%00000001
+        sta     BITMAP+$B*2+1   ; ProDOS global page ($BF)
 
 ;;; --------------------------------------------------
 ;;; Relocate INTBASIC up to target
@@ -180,8 +186,6 @@ gfi_mod_time:           .word   0    ; out
 gfi_create_date:        .word   0    ; out
 gfi_create_time:        .word   0    ; out
 
-        IO_BUFFER := $800       ; ???
-
 open_params:
 open_param_count:       .byte   3         ; in
 open_pathname:          .addr   path      ; in
@@ -224,6 +228,8 @@ quit_res3:              .word   0 ; reserved
         .include "IntegerBASIC_cc65.s"
         .endproc
         sizeof_intbasic = .sizeof(intbasic)
+        .assert * <= IO_BUFFER, error, "collision"
+
         BASIC   = intbasic::BASIC ; jsr COLD ; jmp WARM
         COLD    = intbasic::COLD
         WARM    = intbasic::WARM
