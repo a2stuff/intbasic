@@ -22,11 +22,30 @@ READ            = $CA
 CLOSE           = $CC
 GET_EOF         = $D1
 
-.macro SET16 addr, const
-        lda     #<(const)
-        sta     addr
-        lda     #>(const)
-        sta     addr+1
+ZP_SAVE_ADDR    := $3A          ; ProDOS owns this ZP chunk
+ZP_SAVE_LEN     =  $15
+
+.define _is_immediate(arg)       (.match (.mid (0, 1, {arg}), #))
+.define _immediate_value(arg)    (.right (.tcount ({arg})-1, {arg}))
+
+.macro LDXY arg1
+        .if _is_immediate {arg1}
+        ldx     #<_immediate_value {arg1}
+        ldy     #>_immediate_value {arg1}
+        .else
+        ldx     arg1
+        ldy     arg1+1
+        .endif
+.endmacro
+
+.macro STXY addr
+        stx     addr
+        sty     addr+1
+.endmacro
+
+.macro COPY16 arg1, arg2
+        LDXY    arg1
+        STXY    arg2
 .endmacro
 
 .macro MLI_CALL call, params
@@ -35,13 +54,22 @@ GET_EOF         = $D1
         .addr   params
 .endmacro
 
+.macro PASCAL_STRING str, res
+        .local  data
+        .local  end
+        .byte   end - data
+data:   .byte   str
+end:
+        .if .paramcount > 1
+        .res    res - (end - data), 0
+        .endif
+.endmacro
+
 ;;; ============================================================
 ;;; System Program
 ;;; ============================================================
 
         IO_BUFFER := $B800      ; $B800-$BEFF are unused
-
-
 
 ;;; ProDOS Interpreter Protocol
 ;;; ProDOS 8 Technical Reference Manual
@@ -50,7 +78,7 @@ GET_EOF         = $D1
         jmp     start
         .byte   $EE, $EE        ; Interpreter signature
         .byte   $41             ; path buffer length
-path:   .res    $41,0           ; path buffer
+path:   PASCAL_STRING "", $40   ; path buffer
 start:
 
 ;;; --------------------------------------------------
@@ -75,19 +103,19 @@ start:
 ;;; --------------------------------------------------
 ;;; Relocate INTBASIC up to target
 
-        SET16   A1L, intbasic
-        SET16   A2L, intbasic+sizeof_intbasic-1
-        SET16   A4L, BASIC
+        COPY16  #intbasic, A1L
+        COPY16  #intbasic+sizeof_intbasic-1, A2L
+        COPY16  #BASIC, A4L
         ldy     #0
         jsr     MOVE
 
 ;;; --------------------------------------------------
-;;; Relocate rest of this to $280
+;;; Relocate rest of this to somewhere out of the way
 
-        relo := $300
-        SET16   A1L, proc
-        SET16   A2L, proc+sizeof_proc-1
-        SET16   A4L, relo
+        relo := $280
+        COPY16  #proc, A1L
+        COPY16  #proc+sizeof_proc-1, A2L
+        COPY16  #relo, A4L
         ldy     #0
         jsr     MOVE
         jmp     relo
@@ -102,24 +130,34 @@ start:
 
         ;; Make LOAD/SAVE just QUIT to ProDOS
         lda     #OPC_JMP_abs
-        ldx     #<quit
-        ldy     #>quit
+        LDXY    #quit
         sta     LOAD+0
-        stx     LOAD+1
-        sty     LOAD+2
+        STXY    LOAD+1
         sta     SAVE+0
-        stx     SAVE+1
-        sty     SAVE+2
+        STXY    SAVE+1
 
+        ;; Cold start - initialize Integer BASIC
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        jsr     COLD
+        COPY16  #BASIC, iHIMEM
+        jsr     SwapZP          ; IntBASIC > ProDOS
+
+        ;; Do we have a path?
         lda     path
         bne     have_path
 
-        ;; ----------------------------------------
-        ;; No path - do cold start
-        jmp     BASIC
+        ;; No, just show with prompt
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        jmp     WARM
 
-        ;; ----------------------------------------
+        ;; --------------------------------------------------
+
+        ;; Proc located here within range of branches
+quit:   MLI_CALL QUIT, quit_params
+
+        ;; --------------------------------------------------
         ;; Have path
+
 have_path:
         ;; Check type, bail if not INT
         MLI_CALL GET_FILE_INFO, gfi_params
@@ -128,7 +166,7 @@ have_path:
         cmp     #$FA            ; INT
         bne     quit
 
-        ;; Open file
+        ;; Open the file
         MLI_CALL OPEN, open_params
         bcs     quit
         lda     open_ref_num
@@ -136,42 +174,83 @@ have_path:
         sta     read_ref_num
         sta     close_ref_num
 
-        ;; Get size
+        ;; --------------------------------------------------
+        ;; Compute the load address
+
+        ;; Get file size
         MLI_CALL GET_EOF, geteof_params
         bcs     close
 
-        ;; TODO: Calculate load address
+        ;; In theory we should check geteof_eof+2 and fail
+        ;; if > 64k, but how would such a file be created?
+
+        ;; Set up zero page locations for the calculation
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        LDXY    geteof_eof
+        STXY    ACC
+        STXY    read_request_count
+
+        ;; On any error, just fail back to ProDOS
+        JmpMEMFULL      := close_and_quit
+        BcsJmpMEMFULL   := close_and_quit
+        @LF118          := close_and_quit
+
+        ;; ..................................................
+        ;; Logic c/o IntBASIC's LOAD routine
+        ;; (z: addressing to ensure desired wrap-around)
+
+        ldx     #$ff
+        sec
+@Loop:  lda     z:iHIMEM+1,x ;AUX = HIMEM - ACC
+        sbc     z:ACC+1,x
+        sta     z:AUX+1,x
+        inx
+        beq     @Loop
+        bcc     JmpMEMFULL
+        lda     PV      ;compare PV to AUX
+        cmp     AUX
+        lda     PV+1
+        sbc     AUX+1
+        bcs     BcsJmpMEMFULL
+        lda     ACC     ;is ACC zero?
+        bne     @LF107
+        lda     ACC+1
+        beq     @LF118  ;yes
+@LF107: lda     AUX     ;PP = AUX
+        sta     PP
+        lda     AUX+1
+        sta     PP+1
+
+        ;; ..................................................
+
+        ;; Load address c/o IntBASIC's program pointer
+        COPY16  PP, read_data_buffer
+        jsr     SwapZP          ; IntBASIC -> ProDOS
 
         MLI_CALL READ, read_params
-        bcs     close
-
-        ;; TODO: Do as much of COLD/WARM as needed
-        ;;   * When is it safe to jsr COLD?
-        ;; TODO: Load program
-        ;; TODO: Twiddle pointers
-
-        ;; When END is invoked, just QUIT
-        SET16   END+1, quit     ; replaces: JMP WARM
-
-        ;; Also capture ERRMESS, just QUIT
-        SET16   ERRMESS+1, quit ; replaces: JSR PRINTERR
-
-        ;; Run the program
-        jmp     RUNWARM
 
 close:
         php
         MLI_CALL CLOSE, close_params
         plp
-        bcs     quit
+        bcc     :+
+        jmp     quit
+:
 
-        ;; TODO: Invoke BASIC!
-        brk
+        ;; When END or ERRMESS invoked, just QUIT
+        lda     #OPC_JMP_abs
+        LDXY    #quit
+        STXY    END+1           ; patches JMP WARM
+        sta     ERRMESS
+        STXY    ERRMESS+1       ; patches JSR PRINTERR
 
-quit:
-        MLI_CALL QUIT, quit_params
-        brk
+        ;; Run the program
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        jmp     RUNWARM
 
+close_and_quit:
+        sec
+        jmp     close
 
 gfi_params:
 gfi_param_count:        .byte   $A   ; in
@@ -198,7 +277,7 @@ geteof_ref_num:         .byte   0 ; in, populated at runtime
 geteof_eof:             .res 3, 0 ; out
 
 read_params:
-read_param_count:       .byte   5 ; in
+read_param_count:       .byte   4 ; in
 read_ref_num:           .byte   0 ; in, populated at runtime
 read_data_buffer:       .addr   0 ; in, populated at runtime
 read_request_count:     .word   0 ; in, populated at runtime
@@ -215,6 +294,21 @@ quit_res1:              .word   0 ; reserved
 quit_res2:              .byte   0 ; reserved
 quit_res3:              .word   0 ; reserved
 
+;;; Swap a chunk of the zero page that both IntBASIC and ProDOS use
+.proc SwapZP
+        zp_stash := $220
+
+        ldx     #ZP_SAVE_LEN-1
+:       lda     ZP_SAVE_ADDR,x
+        ldy     zp_stash,x
+        sta     zp_stash,x
+        tya
+        sta     ZP_SAVE_ADDR,x
+        dex
+        bpl     :-
+        rts
+.endproc
+
         .assert * < $3E0, error, "proc too big"
         .endproc
         sizeof_proc = .sizeof(proc)
@@ -230,6 +324,7 @@ quit_res3:              .word   0 ; reserved
         sizeof_intbasic = .sizeof(intbasic)
         .assert * <= IO_BUFFER, error, "collision"
 
+        ;; Entry points
         BASIC   = intbasic::BASIC ; jsr COLD ; jmp WARM
         COLD    = intbasic::COLD
         WARM    = intbasic::WARM
@@ -238,3 +333,10 @@ quit_res3:              .word   0 ; reserved
         ERRMESS = intbasic::ERRMESS
         LOAD    = intbasic::LOAD
         SAVE    = intbasic::SAVE
+
+        ;; Zero page locations, used during loading
+        ACC     = intbasic::ACC
+        AUX     = intbasic::AUX
+        PP      = intbasic::PP
+        PV      = intbasic::PV
+        iHIMEM  = intbasic::HIMEM
