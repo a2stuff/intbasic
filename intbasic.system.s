@@ -317,6 +317,11 @@ close:
         jmp     quit
 :
 
+        ;; Hold Open- or Solid-Apple to allow returning to prompt
+        lda     BUTN0
+        ora     BUTN1
+        bmi     :+
+
         ;; When END or ERRMESS invoked, just QUIT
         lda     #OPC_JMP_abs
         LDXY    #quit
@@ -324,6 +329,7 @@ close:
         STXY    WARM+1
         sta     ERRMESS
         STXY    ERRMESS+1       ; patches JSR PRINTERR
+:
 
         ;; Run the program
         jsr     SwapZP          ; ProDOS > IntBASIC
