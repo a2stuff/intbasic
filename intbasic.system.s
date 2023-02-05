@@ -1,6 +1,59 @@
         .include "apple2.inc"
         .include "opcodes.inc"
 
+;;; ============================================================
+;;; Memory map
+;;; ============================================================
+
+;;;          Main Memory           ROM
+;;;  $FFFF   +-----------+         +-----------+
+;;;  $F800   | ProDOS    |         | Monitor   |
+;;;          |           |         +-----------+
+;;;          |           |         | Applesoft |
+;;;  $E000   |    +-----------+    |           |
+;;;          |    | ProDOS    |    |           |
+;;;  $D000   +----+-----------+    +-----------+
+;;;                                | Firmware  |
+;;;                                | I/O       |
+;;;  $C000   +-----------+         +-----------+
+;;;          | ProDOS GP |
+;;;  $BF00   +-----------+
+;;;          | IO_BUFFER |
+;;;  $BB00   +-----------+
+;;;          | (free)... |
+;;;          | ......... |
+;;;          | ......... |
+;;;  $B425   +-----------+
+;;;          | IntBASIC  |
+;;;          |           |
+;;;          |           |
+;;;          |           |
+;;;  $A000   +-----------+  HIMEM
+;;;          | Program   |
+;;;          |     |     |
+;;;          |     v     |
+;;;          :           :
+;;;          :           :
+;;;          |     ^     |
+;;;          |     |     |
+;;;          | Variables |
+;;;  $0800   +-----------+  LOMEM
+;;;          | Text Pg.1 |
+;;;  $0400   +-----------+
+;;;          | Load/Quit |
+;;;  $0300   +-----------+
+;;;          | Input Buf |
+;;;  $0200   +-----------+
+;;;          | Stack     |
+;;;  $0100   +-----------+
+;;;          | Zero Page |
+;;;  $0000   +-----------+
+;;;
+
+;;; ============================================================
+;;; Equates
+;;; ============================================================
+
 ;;; Monitor Equates
 A1L     =       $3c     ;general purpose
 A1H     =       $3d     ;general purpose
@@ -24,6 +77,10 @@ GET_EOF         = $D1
 
 ZP_SAVE_ADDR    := $3A          ; ProDOS owns this ZP chunk
 ZP_SAVE_LEN     =  $15
+
+;;; ============================================================
+;;; Macros
+;;; ============================================================
 
 .define _is_immediate(arg)       (.match (.mid (0, 1, {arg}), #))
 .define _immediate_value(arg)    (.right (.tcount ({arg})-1, {arg}))
@@ -69,7 +126,7 @@ end:
 ;;; System Program
 ;;; ============================================================
 
-        IO_BUFFER := $B800      ; $B800-$BEFF are unused
+        IO_BUFFER := $BB00
 
 ;;; ProDOS Interpreter Protocol
 ;;; ProDOS 8 Technical Reference Manual
@@ -77,7 +134,7 @@ end:
         .org $2000
         jmp     start
         .byte   $EE, $EE        ; Interpreter signature
-        .byte   $41             ; path buffer length
+        .byte   start - path    ; path buffer length
 path:   PASCAL_STRING "", $40   ; path buffer
 start:
 
@@ -139,7 +196,9 @@ start:
         ;; Cold start - initialize Integer BASIC
         jsr     SwapZP          ; ProDOS > IntBASIC
         jsr     COLD
-        COPY16  #BASIC, iHIMEM
+        LDXY    #BASIC
+        STXY    iHIMEM
+        STXY    PP
         jsr     SwapZP          ; IntBASIC > ProDOS
 
         ;; Do we have a path?
@@ -240,7 +299,8 @@ close:
         ;; When END or ERRMESS invoked, just QUIT
         lda     #OPC_JMP_abs
         LDXY    #quit
-        STXY    END+1           ; patches JMP WARM
+        sta     WARM
+        STXY    WARM+1
         sta     ERRMESS
         STXY    ERRMESS+1       ; patches JSR PRINTERR
 

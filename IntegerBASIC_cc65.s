@@ -3370,6 +3370,7 @@ INSLOT: jsr     GETBYTE
         ldx     XSAVE
         rts
 
+.ifdef INCLUDE_DEAD_CODE
         .byte   $18,$a2,$02,$b5,$f9,$75,$f5,$95,$f9,$ca,$10,$f7,$60,$06,$f3,$20 ;binary ends at $f7ff
         .byte   $37,$f4,$24,$f9,$10,$05,$20,$a4,$f4,$e6,$f3,$38,$a2,$04,$94,$fb
         .byte   $b5,$f7,$b4,$f3,$94,$f7,$95,$f3,$ca,$d0,$f3,$60,$a9,$8e,$85,$f8
@@ -3432,3 +3433,4 @@ INSLOT: jsr     GETBYTE
         .byte   $b5,$00,$35,$01,$49,$ff,$f0,$c4,$60,$0a,$aa,$b5,$00,$35,$01,$49
         .byte   $ff,$d0,$b9,$60,$a2,$18,$20,$66,$f7,$a1,$00,$85,$1f,$20,$66,$f7
         .byte   $a1,$00,$85,$1e,$60,$4c,$c7,$f6,$f6,$ff,$ff
+.endif

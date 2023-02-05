@@ -18,3 +18,4 @@ Modifications:
 
 * Target address changed to $A000 (from $E000)
 * `SYNTABLE-118` is corrected to `SYNTABLE>>1`
+* Dead code is removed
