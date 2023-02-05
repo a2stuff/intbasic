@@ -114,7 +114,7 @@ MON_WRITE0 =    $fecf
 MON_READ =      $fefd   ;read data from cassette
 MON_BELL =      $ff3a   ;sound bell
 
-        .org    $A000
+;;;     .org    $E000
 BASIC:  jsr     COLD
 BASIC2: jmp     WARM
 

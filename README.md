@@ -12,10 +12,10 @@ This is a version of Steve Wozniak's Integer BASIC for the Apple II, with a wrap
 
 See  [Integer BASIC on Wikipedia](https://en.wikipedia.org/wiki/Integer_BASIC) or [Apple II BASIC Programming Manual](http://cini.classiccmp.org/pdf/Apple/Apple%20II%20Basic%20Programming%20Manual.pdf) to learn more about the language.
 
-This uses the Integer BASIC disassembly by Paul R. Santa-Maria from: https://6502disassembly.com/a2-rom/
+This uses the Integer BASIC disassembly by Paul R. Santa-Maria from: https://6502disassembly.com/a2-rom/ (utilizing the SourceGen format conversion by Andy McFadden)
 
 Modifications:
 
-* Target address changed to $A000 (from $E000)
+* Target address commented out (defined by includer)
 * `SYNTABLE-118` is corrected to `SYNTABLE>>1`
-* Dead code is removed
+* Dead code is ifdef'd out

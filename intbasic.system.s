@@ -23,6 +23,8 @@
 ;;;          | (free)... |
 ;;;          | ......... |
 ;;;          | ......... |
+;;; ~$B600   +-----------+
+;;;          | Init      |  Program loader
 ;;;  $B425   +-----------+
 ;;;          | IntBASIC  |
 ;;;          |           |
@@ -40,7 +42,7 @@
 ;;;  $0800   +-----------+  LOMEM
 ;;;          | Text Pg.1 |
 ;;;  $0400   +-----------+
-;;;          | Load/Quit |
+;;;          | (free)... |
 ;;;  $0300   +-----------+
 ;;;          | Input Buf |
 ;;;  $0200   +-----------+
@@ -158,32 +160,51 @@ start:
         sta     BITMAP+$B*2+1   ; ProDOS global page ($BF)
 
 ;;; --------------------------------------------------
-;;; Relocate INTBASIC up to target
+;;; Relocate INTBASIC and our stub up to target
 
-        COPY16  #intbasic, A1L
-        COPY16  #intbasic+sizeof_intbasic-1, A2L
-        COPY16  #BASIC, A4L
+        COPY16  #reloc, A1L
+        COPY16  #reloc+sizeof_reloc-1, A2L
+        COPY16  #reloc_target, A4L
         ldy     #0
         jsr     MOVE
 
-;;; --------------------------------------------------
-;;; Relocate rest of this to somewhere out of the way
-
-        relo := $280
-        COPY16  #proc, A1L
-        COPY16  #proc+sizeof_proc-1, A2L
-        COPY16  #relo, A4L
-        ldy     #0
-        jsr     MOVE
-        jmp     relo
+        jmp     Initialize
 
 ;;; ============================================================
+;;; Integer BASIC Implementation
+;;; ============================================================
+
+        reloc_target := $A000
+        .proc reloc
+        .org ::reloc_target
+        .scope intbasic
+        .include "IntegerBASIC_cc65.s"
+        .endscope
+
+        ;; Entry points
+        BASIC   = intbasic::BASIC ; jsr COLD ; jmp WARM
+        COLD    = intbasic::COLD
+        WARM    = intbasic::WARM
+        RUNWARM = intbasic::RUNWARM
+        END     = intbasic::END
+        ERRMESS = intbasic::ERRMESS
+        LOAD    = intbasic::LOAD
+        SAVE    = intbasic::SAVE
+
+        ;; Zero page locations, used during loading
+        ACC     = intbasic::ACC
+        AUX     = intbasic::AUX
+        PP      = intbasic::PP
+        PV      = intbasic::PV
+        iHIMEM  = intbasic::HIMEM
+
+;;; ============================================================
+;;; Initializer
+;;; ============================================================
+
 ;;; Load program (if given) and invoke Integer BASIC
-;;; ============================================================
 
-        __saved_org__ .set *
-        .proc proc
-        .org ::relo
+Initialize:
 
         ;; Make LOAD/SAVE just QUIT to ProDOS
         lda     #OPC_JMP_abs
@@ -312,6 +333,10 @@ close_and_quit:
         sec
         jmp     close
 
+;;; ============================================================
+;;; ProDOS Parameter Blocks
+
+;;; GET_FILE_INFO
 gfi_params:
 gfi_param_count:        .byte   $A   ; in
 gfi_pathname:           .addr   path ; in
@@ -325,17 +350,20 @@ gfi_mod_time:           .word   0    ; out
 gfi_create_date:        .word   0    ; out
 gfi_create_time:        .word   0    ; out
 
+;;; OPEN
 open_params:
 open_param_count:       .byte   3         ; in
 open_pathname:          .addr   path      ; in
 open_io_buffer:         .addr   IO_BUFFER ; in
 open_ref_num:           .byte   0         ; out
 
+;;; GET_EOF
 geteof_params:
 geteof_param_count:     .byte   2 ; in
 geteof_ref_num:         .byte   0 ; in, populated at runtime
 geteof_eof:             .res 3, 0 ; out
 
+;;; READ
 read_params:
 read_param_count:       .byte   4 ; in
 read_ref_num:           .byte   0 ; in, populated at runtime
@@ -343,10 +371,12 @@ read_data_buffer:       .addr   0 ; in, populated at runtime
 read_request_count:     .word   0 ; in, populated at runtime
 read_trans_count:       .word   0 ; out
 
+;;; CLOSE
 close_params:
 close_param_count:      .byte   1 ; in
 close_ref_num:          .byte   0 ; in, populated at runtime
 
+;;; QUIT
 quit_params:
 quit_param_count:       .byte   4 ; in
 quit_type:              .byte   0 ; in
@@ -354,10 +384,10 @@ quit_res1:              .word   0 ; reserved
 quit_res2:              .byte   0 ; reserved
 quit_res3:              .word   0 ; reserved
 
+;;; ============================================================
+
 ;;; Swap a chunk of the zero page that both IntBASIC and ProDOS use
 .proc SwapZP
-        zp_stash := $220
-
         ldx     #ZP_SAVE_LEN-1
 :       lda     ZP_SAVE_ADDR,x
         ldy     zp_stash,x
@@ -367,36 +397,14 @@ quit_res3:              .word   0 ; reserved
         dex
         bpl     :-
         rts
+
+zp_stash:
+        .res    ::ZP_SAVE_LEN
 .endproc
 
-        .assert * < $3E0, error, "proc too big"
-        .endproc
-        sizeof_proc = .sizeof(proc)
-        .org __saved_org__ + sizeof_proc
-
-;;; ============================================================
-;;; Integer BASIC Implementation
 ;;; ============================================================
 
-        .proc intbasic
-        .include "IntegerBASIC_cc65.s"
-        .endproc
-        sizeof_intbasic = .sizeof(intbasic)
+        .endproc ; reloc
+        sizeof_reloc = .sizeof(reloc)
         .assert * <= IO_BUFFER, error, "collision"
-
-        ;; Entry points
-        BASIC   = intbasic::BASIC ; jsr COLD ; jmp WARM
-        COLD    = intbasic::COLD
-        WARM    = intbasic::WARM
-        RUNWARM = intbasic::RUNWARM
-        END     = intbasic::END
-        ERRMESS = intbasic::ERRMESS
-        LOAD    = intbasic::LOAD
-        SAVE    = intbasic::SAVE
-
-        ;; Zero page locations, used during loading
-        ACC     = intbasic::ACC
-        AUX     = intbasic::AUX
-        PP      = intbasic::PP
-        PV      = intbasic::PV
-        iHIMEM  = intbasic::HIMEM
+        Initialize := reloc::Initialize
