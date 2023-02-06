@@ -417,10 +417,11 @@ zp_stash:
 
 ;;; Command Hook - replaces MON_NXTCHAR call in GETCMD to
 ;;; allow extra commands to be added.
-;;; NOTE: must preserve X; A,Y scrambled
+;;; NOTE: must preserve X; A set to last char pressed
 .proc CommandHook
+        jsr     intbasic::MON_NXTCHAR ; preserves X, A set to last char
+        sta     save_a
         stx     save_x
-        jsr     intbasic::MON_NXTCHAR
 
         ;; Test for string match
         ldy     #3
@@ -432,6 +433,8 @@ zp_stash:
         jmp     quit
 
 no_match:
+        save_a := *+1
+        lda     #$00            ; self-modified
         save_x := *+1
         ldx     #$00            ; self-modified
         rts
