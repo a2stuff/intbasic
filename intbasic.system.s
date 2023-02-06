@@ -182,23 +182,6 @@ start:
         .include "IntegerBASIC_cc65.s"
         .endscope
 
-        ;; Entry points
-        BASIC   = intbasic::BASIC ; jsr COLD ; jmp WARM
-        COLD    = intbasic::COLD
-        WARM    = intbasic::WARM
-        RUNWARM = intbasic::RUNWARM
-        END     = intbasic::END
-        ERRMESS = intbasic::ERRMESS
-        LOAD    = intbasic::LOAD
-        SAVE    = intbasic::SAVE
-
-        ;; Zero page locations, used during loading
-        ACC     = intbasic::ACC
-        AUX     = intbasic::AUX
-        PP      = intbasic::PP
-        PV      = intbasic::PV
-        iHIMEM  = intbasic::HIMEM
-
 ;;; ============================================================
 ;;; Initializer
 ;;; ============================================================
@@ -210,10 +193,10 @@ Initialize:
         ;; Make LOAD/SAVE just QUIT to ProDOS
         lda     #OPC_JMP_abs
         LDXY    #quit
-        sta     LOAD+0
-        STXY    LOAD+1
-        sta     SAVE+0
-        STXY    SAVE+1
+        sta     intbasic::LOAD+0
+        STXY    intbasic::LOAD+1
+        sta     intbasic::SAVE+0
+        STXY    intbasic::SAVE+1
 
         ;; Hook the command parser
         LDXY    #CommandHook
@@ -221,10 +204,10 @@ Initialize:
 
         ;; Cold start - initialize Integer BASIC
         jsr     SwapZP          ; ProDOS > IntBASIC
-        jsr     COLD
-        LDXY    #BASIC
-        STXY    iHIMEM
-        STXY    PP
+        jsr     intbasic::COLD
+        LDXY    #intbasic::BASIC
+        STXY    intbasic::HIMEM
+        STXY    intbasic::PP
         jsr     SwapZP          ; IntBASIC > ProDOS
 
         ;; Do we have a path?
@@ -233,7 +216,7 @@ Initialize:
 
         ;; No, just show with prompt
         jsr     SwapZP          ; ProDOS > IntBASIC
-        jmp     WARM
+        jmp     intbasic::WARM
 
         ;; --------------------------------------------------
 
@@ -272,7 +255,7 @@ have_path:
         ;; Set up zero page locations for the calculation
         jsr     SwapZP          ; ProDOS > IntBASIC
         LDXY    geteof_eof
-        STXY    ACC
+        STXY    intbasic::ACC
         STXY    read_request_count
 
         ;; On any error, just fail back to ProDOS
@@ -286,30 +269,30 @@ have_path:
 
         ldx     #$ff
         sec
-@Loop:  lda     z:iHIMEM+1,x ;AUX = HIMEM - ACC
-        sbc     z:ACC+1,x
-        sta     z:AUX+1,x
+@Loop:  lda     z:intbasic::HIMEM+1,x ;AUX = HIMEM - ACC
+        sbc     z:intbasic::ACC+1,x
+        sta     z:intbasic::AUX+1,x
         inx
         beq     @Loop
         bcc     JmpMEMFULL
-        lda     PV      ;compare PV to AUX
-        cmp     AUX
-        lda     PV+1
-        sbc     AUX+1
+        lda     intbasic::PV      ;compare PV to AUX
+        cmp     intbasic::AUX
+        lda     intbasic::PV+1
+        sbc     intbasic::AUX+1
         bcs     BcsJmpMEMFULL
-        lda     ACC     ;is ACC zero?
+        lda     intbasic::ACC     ;is ACC zero?
         bne     @LF107
-        lda     ACC+1
+        lda     intbasic::ACC+1
         beq     @LF118  ;yes
-@LF107: lda     AUX     ;PP = AUX
-        sta     PP
-        lda     AUX+1
-        sta     PP+1
+@LF107: lda     intbasic::AUX     ;PP = AUX
+        sta     intbasic::PP
+        lda     intbasic::AUX+1
+        sta     intbasic::PP+1
 
         ;; ..................................................
 
         ;; Load address c/o IntBASIC's program pointer
-        COPY16  PP, read_data_buffer
+        COPY16  intbasic::PP, read_data_buffer
         jsr     SwapZP          ; IntBASIC -> ProDOS
 
         MLI_CALL READ, read_params
@@ -330,15 +313,15 @@ close:
         ;; When END or ERRMESS invoked, just QUIT
         lda     #OPC_JMP_abs
         LDXY    #quit
-        sta     WARM
-        STXY    WARM+1
-        sta     ERRMESS
-        STXY    ERRMESS+1       ; patches JSR PRINTERR
+        sta     intbasic::WARM
+        STXY    intbasic::WARM+1
+        sta     intbasic::ERRMESS
+        STXY    intbasic::ERRMESS+1       ; patches JSR PRINTERR
 :
 
         ;; Run the program
         jsr     SwapZP          ; ProDOS > IntBASIC
-        jmp     RUNWARM
+        jmp     intbasic::RUNWARM
 
 close_and_quit:
         sec
