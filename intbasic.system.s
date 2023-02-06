@@ -1,4 +1,5 @@
         .include "apple2.inc"
+        .include "apple2.mac"
         .include "opcodes.inc"
 
 ;;; ============================================================
@@ -214,6 +215,10 @@ Initialize:
         sta     SAVE+0
         STXY    SAVE+1
 
+        ;; Hook the command parser
+        LDXY    #CommandHook
+        STXY    intbasic::GETCMD+3
+
         ;; Cold start - initialize Integer BASIC
         jsr     SwapZP          ; ProDOS > IntBASIC
         jsr     COLD
@@ -406,6 +411,34 @@ quit_res3:              .word   0 ; reserved
 
 zp_stash:
         .res    ::ZP_SAVE_LEN
+.endproc
+
+;;; ============================================================
+
+;;; Command Hook - replaces MON_NXTCHAR call in GETCMD to
+;;; allow extra commands to be added.
+;;; NOTE: must preserve X; A,Y scrambled
+.proc CommandHook
+        stx     save_x
+        jsr     intbasic::MON_NXTCHAR
+
+        ;; Test for string match
+        ldy     #3
+:       lda     intbasic::IN,y
+        cmp     str_bye,y
+        bne     no_match
+        dey
+        bpl     :-
+        jmp     quit
+
+no_match:
+        save_x := *+1
+        ldx     #$00            ; self-modified
+        rts
+
+str_bye:
+        scrcode "BYE"
+        .byte   $8D             ; CR
 .endproc
 
 ;;; ============================================================

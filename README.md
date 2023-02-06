@@ -4,7 +4,8 @@ This is a version of Steve Wozniak's Integer BASIC for the Apple II, with a wrap
 
 1. When invoked directly, the Integer BASIC `>` prompt is shown and you can type in and execute programs.
 
-   * Type `LOAD` or `SAVE` to exit back to ProDOS and your program selector.
+   * Type `BYE` to exit back to ProDOS and your program selector.
+   * `LOAD` and `SAVE` will also exit back to ProDOS.
 
 
 2. When invoked as an "interpreter" for an `INT` file from a program selector (such as [Bitsy Bye](https://prodos8.com/bitsy-bye/) or [Apple II DeskTop](https://a2desktop.com)), the file is loaded an executed.
