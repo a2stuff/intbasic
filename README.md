@@ -8,13 +8,13 @@ This is a version of Steve Wozniak's Integer BASIC for the Apple II, with a wrap
    * `LOAD` and `SAVE` will also exit back to ProDOS.
 
 
-2. When invoked as an "interpreter" for an `INT` file from a program selector (such as [Bitsy Bye](https://prodos8.com/bitsy-bye/) or [Apple II DeskTop](https://a2desktop.com)), the file is loaded an executed.
+2. When invoked as an "interpreter" for an `INT` file from a program selector (such as [Bitsy Bye](https://prodos8.com/bitsy-bye/) or [Apple II DeskTop](https://a2desktop.com)), the file is loaded and executed.
 
    * When the program ends or encounters an error, control is returned to ProDOS and the program selector.
    * Pressing <kbd>Control</kbd>+<kbd>C</kbd> will usually exit a program as well.
    * Optionally, hold down <kbd>Open Apple</kbd> or <kbd>Solid Apple</kbd> when starting to allow exiting the program to remain at the `>` prompt.
 
-> Note that when Integer BASIC is running disk access not available! This is different from ProDOS's BASIC.SYSTEM which offers commands like `CAT`, `LOAD` and `SAVE` to the user and the ability to execute commands from BASIC with `PRINT CHR$(4)`. Programs that need to load resources will not work.
+> ⚠️ Note that when Integer BASIC is running disk access not available! This is different from ProDOS's BASIC.SYSTEM which offers commands like `CAT`, `LOAD` and `SAVE` to the user and the ability to execute commands from BASIC with `PRINT CHR$(4)`. Programs that need to load resources will not work.
 
 ## Integer BASIC
 
