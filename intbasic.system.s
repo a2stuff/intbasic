@@ -400,31 +400,81 @@ zp_stash:
 
 ;;; Command Hook - replaces MON_NXTCHAR call in GETCMD to
 ;;; allow extra commands to be added.
-;;; NOTE: must preserve X; A set to last char pressed
 .proc CommandHook
-        jsr     intbasic::MON_NXTCHAR ; preserves X, A set to last char
-        sta     save_a
-        stx     save_x
+        jsr     intbasic::MON_NXTCHAR
+        sta     save_a                ; last char pressed
+        stx     save_x                ; position in input buffer
 
-        ;; Test for string match
-        ldy     #3
-:       lda     intbasic::IN,y
-        cmp     str_bye,y
-        bne     no_match
-        dey
-        bpl     :-
-        jmp     quit
+        ldx     #0
+        stx     cmdnum
+        dex                     ; -1; immediately incremented to 0
 
-no_match:
+        ;; Check command
+loop:   ldy     #$FF            ; -1, immediately incremented to 0
+:       iny
+        inx
+        lda     cmdtable,x
+        beq     dispatch
+        cmp     intbasic::IN,y
+        beq     :-              ; next character
+
+        ;; Next command
+next:   inx
+        lda     cmdtable,x
+        bne     next
+        inc     cmdnum
+        lda     cmdtable+1,x
+        bne     loop
+
+        ;; No match
         save_a := *+1
         lda     #$00            ; self-modified
         save_x := *+1
         ldx     #$00            ; self-modified
         rts
 
-str_bye:
+        ;; Dispatch to matching command
+dispatch:
+        cmdnum := *+1
+        ldx     #$00            ; self-modified
+        lda     cmdproclo,x
+        sta     disp
+        lda     cmdprochi,x
+        sta     disp+1
+        disp := *+1
+        jsr     $0000           ; self-modified
+
+        ;; If it returns, pass empty command line back
+        lda     #$8D
+        ldx     #0
+        sta     intbasic::IN,x
+        rts
+
+cmdtable:
         scrcode "BYE"
-        .byte   $8D             ; CR
+        .byte   0
+        scrcode "ECHO"
+        .byte   0
+        .byte   0               ; sentinel
+
+cmdproclo:
+        .byte   <ByeCmd,<EchoCmd
+cmdprochi:
+        .byte   >ByeCmd,>EchoCmd
+
+ByeCmd := quit
+
+;;; Proof of concept command - echos back rest of command line.
+.proc EchoCmd
+        dey
+:       iny
+        lda     intbasic::IN,y
+        jsr     intbasic::MON_COUT
+        cmp     #$8D
+        bne     :-
+        rts
+.endproc
+
 .endproc
 
 ;;; ============================================================
