@@ -384,6 +384,14 @@ read_data_buffer:       .addr   0 ; in, populated at runtime
 read_request_count:     .word   0 ; in, populated at runtime
 read_trans_count:       .word   0 ; out
 
+;;; WRITE
+write_params:
+write_param_count:      .byte   4 ; in
+write_ref_num:          .byte   1 ; in
+write_data_buffer:      .addr   0 ; in
+write_request_count:    .word   0 ; in
+write_trans_count:      .word   0 ; out
+
 ;;; CLOSE
 close_params:
 close_param_count:      .byte   1 ; in
@@ -396,6 +404,17 @@ quit_type:              .byte   0 ; in
 quit_res1:              .word   0 ; reserved
 quit_res2:              .byte   0 ; reserved
 quit_res3:              .word   0 ; reserved
+
+;;; CREATE
+create_params:
+create_param_count:     .byte   7       ; in
+create_pathname:        .addr   PATHBUF ; in
+create_access:          .byte   $C3     ; in
+create_file_type:       .byte   $FA     ; in INT
+create_aux_type:        .word   0       ; in
+create_storage_type:    .byte   0       ; in
+create_date:            .word   0       ; in
+create_time:            .word   0       ; in
 
 ;;; ============================================================
 
@@ -574,32 +593,6 @@ finish:
         bne     ShowError
         clc
         rts
-
-;;; OPEN
-open_params:
-open_param_count:       .byte   3         ; in
-open_pathname:          .addr   PATHBUF   ; in
-open_io_buffer:         .addr   IO_BUFFER ; in
-open_ref_num:           .byte   0         ; out
-
-;;; WRITE
-write_params:
-write_param_count:      .byte   4 ; in
-write_ref_num:          .byte   1 ; in
-write_data_buffer:      .addr   0 ; in
-write_request_count:    .word   0 ; in
-write_trans_count:      .word   0 ; out
-
-;;; CREATE
-create_params:
-create_param_count:     .byte   7       ; in
-create_pathname:        .addr   PATHBUF ; in
-create_access:          .byte   $C3     ; in
-create_file_type:       .byte   $FA     ; in INT
-create_aux_type:        .word   0       ; in
-create_storage_type:    .byte   0       ; in
-create_date:            .word   0       ; in
-create_time:            .word   0       ; in
 
 .endproc
 
