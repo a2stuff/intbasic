@@ -65,18 +65,24 @@ A2H     =       $3f     ;general purpose
 A4L     =       $42     ;general purpose
 A4H     =       $43     ;general purpose
 MOVE    =       $FE2C
+PRBYTE  =       $FDDA
 
 ;;; ProDOS Equates
 MLI             := $BF00
 BITMAP          := $BF58
 BITMAP_SIZE     =  24
+DATELO          := $BF90
+TIMELO          := $BF92
 
 QUIT            = $65
+CREATE          = $C0
 GET_FILE_INFO   = $C4
 OPEN            = $C8
 READ            = $CA
+WRITE           = $CB
 CLOSE           = $CC
 GET_EOF         = $D1
+
 
 ZP_SAVE_ADDR    := $3A          ; ProDOS owns this ZP chunk
 ZP_SAVE_LEN     =  $15
@@ -130,6 +136,7 @@ end:
 ;;; ============================================================
 
         IO_BUFFER := $BB00
+        PATHBUF := $280
 
 ;;; ProDOS Interpreter Protocol
 ;;; ProDOS 8 Technical Reference Manual
@@ -140,6 +147,18 @@ end:
         .byte   start - path    ; path buffer length
 path:   PASCAL_STRING "", $40   ; path buffer
 start:
+
+;;; --------------------------------------------------
+;;; Copy path somewhere safe
+
+        ldx     path
+        stx     PATHBUF
+        beq     skip
+:       lda     path,x
+        sta     PATHBUF,x
+        dex
+        bpl     :-
+skip:
 
 ;;; --------------------------------------------------
 ;;; Configure system bitmap
@@ -211,7 +230,7 @@ Initialize:
         jsr     SwapZP          ; IntBASIC > ProDOS
 
         ;; Do we have a path?
-        lda     path
+        lda     PATHBUF
         bne     have_path
 
         ;; No, just show with prompt
@@ -332,22 +351,22 @@ close_and_quit:
 
 ;;; GET_FILE_INFO
 gfi_params:
-gfi_param_count:        .byte   $A   ; in
-gfi_pathname:           .addr   path ; in
-gfi_access:             .byte   0    ; out
-gfi_file_type:          .byte   0    ; out
-gfi_aux_type:           .word   0    ; out
-gfi_storage_type:       .byte   0    ; out
-gfi_blocks_used:        .word   0    ; out
-gfi_mod_date:           .word   0    ; out
-gfi_mod_time:           .word   0    ; out
-gfi_create_date:        .word   0    ; out
-gfi_create_time:        .word   0    ; out
+gfi_param_count:        .byte   $A      ; in
+gfi_pathname:           .addr   PATHBUF ; in
+gfi_access:             .byte   0       ; out
+gfi_file_type:          .byte   0       ; out
+gfi_aux_type:           .word   0       ; out
+gfi_storage_type:       .byte   0       ; out
+gfi_blocks_used:        .word   0       ; out
+gfi_mod_date:           .word   0       ; out
+gfi_mod_time:           .word   0       ; out
+gfi_create_date:        .word   0       ; out
+gfi_create_time:        .word   0       ; out
 
 ;;; OPEN
 open_params:
 open_param_count:       .byte   3         ; in
-open_pathname:          .addr   path      ; in
+open_pathname:          .addr   PATHBUF   ; in
 open_io_buffer:         .addr   IO_BUFFER ; in
 open_ref_num:           .byte   0         ; out
 
@@ -444,10 +463,19 @@ dispatch:
         disp := *+1
         jsr     $0000           ; self-modified
 
-        ;; If it returns, pass empty command line back
+        ;; If it returns with C=0, pass empty command line back
+        bcs     :+
         lda     #$8D
         ldx     #0
         sta     intbasic::IN,x
+        rts
+:
+        ;; TODO: Show a better error than syntax error
+        lda     #'!'|$80
+        sta     intbasic::IN
+        lda     #$8D
+        sta     intbasic::IN+1
+        ldx     #1
         rts
 
 cmdtable:
@@ -455,12 +483,14 @@ cmdtable:
         .byte   0
         scrcode "ECHO"
         .byte   0
+        scrcode "SAVE"
+        .byte   0
         .byte   0               ; sentinel
 
 cmdproclo:
-        .byte   <ByeCmd,<EchoCmd
+        .byte   <ByeCmd,<EchoCmd,<SaveCmd
 cmdprochi:
-        .byte   >ByeCmd,>EchoCmd
+        .byte   >ByeCmd,>EchoCmd,>SaveCmd
 
 ByeCmd := quit
 
@@ -472,14 +502,155 @@ ByeCmd := quit
         jsr     intbasic::MON_COUT
         cmp     #$8D
         bne     :-
+
+        clc
         rts
 .endproc
 
+.proc SaveCmd
+        jsr     GetPathname
+        lda     PATHBUF
+        bne     :+
+        sec                     ; syntax error
+        rts
+:
+        ;; Prepare the parameters
+        ldx     #3
+:       lda     DATELO,x
+        sta     create_date,x
+        dex
+        bpl     :-
+
+        lda     intbasic::PP
+        sta     write_data_buffer
+        lda     intbasic::PP+1
+        sta     write_data_buffer+1
+
+        sec
+        lda     intbasic::HIMEM
+        sbc     intbasic::PP
+        sta     write_request_count
+        lda     intbasic::HIMEM+1
+        sbc     intbasic::PP+1
+        sta     write_request_count+1
+
+        jsr     SwapZP          ; IntBASIC > ProDOS
+
+        ;; If it exists, is it INT?
+        MLI_CALL GET_FILE_INFO, gfi_params
+        beq     check
+        cmp     #$46            ; error "File not found"
+        beq     create
+        bne     finish          ; other error
+check:  lda     gfi_file_type   ; check type
+        cmp     #$FA            ; INT
+        beq     write           ; okay to overwrite
+        lda     #$4A            ; error "Incompatible file format"
+        bne     finish          ; always
+
+        ;; Create the file
+create:
+        MLI_CALL CREATE, create_params
+        beq     write           ; success
+        cmp     #$47            ; ignore "Duplicate filename"
+        bne     finish          ; otherwise fail
+
+        ;; Write the file
+write:
+        MLI_CALL OPEN, open_params
+        bne     finish
+        lda     open_ref_num
+        sta     write_ref_num
+        sta     close_ref_num
+        MLI_CALL WRITE, write_params
+        pha
+        MLI_CALL CLOSE, close_params
+        pla
+
+finish:
+        pha
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        pla
+        bne     ShowError
+        clc
+        rts
+
+;;; OPEN
+open_params:
+open_param_count:       .byte   3         ; in
+open_pathname:          .addr   PATHBUF   ; in
+open_io_buffer:         .addr   IO_BUFFER ; in
+open_ref_num:           .byte   0         ; out
+
+;;; WRITE
+write_params:
+write_param_count:      .byte   4 ; in
+write_ref_num:          .byte   1 ; in
+write_data_buffer:      .addr   0 ; in
+write_request_count:    .word   0 ; in
+write_trans_count:      .word   0 ; out
+
+;;; CREATE
+create_params:
+create_param_count:     .byte   7       ; in
+create_pathname:        .addr   PATHBUF ; in
+create_access:          .byte   $C3     ; in
+create_file_type:       .byte   $FA     ; in INT
+create_aux_type:        .word   0       ; in
+create_storage_type:    .byte   0       ; in
+create_date:            .word   0       ; in
+create_time:            .word   0       ; in
+
 .endproc
+
+;;; Input: Y = end of command in `intbasic::IN`
+;;; Output: `pathbuf` is length-prefixed path
+.proc GetPathname
+        ;; Skip spaces
+:       lda     intbasic::IN,y
+        cmp     #$A0            ; space
+        bne     :+
+        iny
+        bne     :-              ; always
+:
+        ;; Copy path
+        ldx     #0
+:       lda     intbasic::IN,y
+        cmp     #$8D            ; CR
+        beq     done
+        and     #$7F
+        sta     PATHBUF+1,x
+        iny
+        inx
+        bne     :-              ; always
+
+done:   stx     PATHBUF
+        rts
+.endproc ; GetPathname
+
+.proc ShowError
+        pha
+        ldx     #0
+:       lda     message,x
+        beq     :+
+        jsr     intbasic::MON_COUT
+        inx
+        bne     :-              ; always
+:       pla
+        jsr     PRBYTE
+        clc
+        rts
+
+message:
+        scrcode "PRODOS ERROR #$"
+        .byte   0
+.endproc ; ShowError
+
+.endproc ; CommandHook
 
 ;;; ============================================================
 
-        .endproc ; reloc
+.endproc ; reloc
         sizeof_reloc = .sizeof(reloc)
         .assert * <= IO_BUFFER, error, "collision"
         Initialize := reloc::Initialize
