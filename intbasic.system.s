@@ -24,7 +24,7 @@
 ;;;          | (free)... |
 ;;;          | ......... |
 ;;;          | ......... |
-;;; ~$B800   +-----------+
+;;; ~$B900   +-----------+
 ;;;          | Init      |  Program loader
 ;;;  $B425   +-----------+
 ;;;          | IntBASIC  |
@@ -85,6 +85,16 @@ WRITE           = $CB
 CLOSE           = $CC
 GET_EOF         = $D1
 
+FILE_ENTRY_SIZE = $27
+FT_TXT          = $04
+FT_BIN          = $06
+FT_DIR          = $0F
+FT_INT          = $FA
+FT_BAS          = $FC
+FT_SYS          = $FF
+ERR_FILE_NOT_FOUND              = $46
+ERR_DUPLICATE_FILENAME          = $47
+ERR_INCOMPATIBLE_FILE_FORMAT    = $4A
 
 ZP_SAVE_ADDR    := $3A          ; ProDOS owns this ZP chunk
 ZP_SAVE_LEN     =  $15
@@ -178,8 +188,8 @@ skip:
         sta     BITMAP+$A*2     ; Pages $A0-$A7
         sta     BITMAP+$A*2+1   ; Pages $A8-$AF
         sta     BITMAP+$B*2     ; Pages $B0-$B7
-        lda     #%00000001
-        sta     BITMAP+$B*2+1   ; ProDOS global page ($BF)
+        lda     #%11000001
+        sta     BITMAP+$B*2+1   ; Pages $B8-$B9, ProDOS global page ($BF)
 
 ;;; --------------------------------------------------
 ;;; Relocate INTBASIC and our stub up to target
@@ -287,9 +297,9 @@ have_path:
         MLI_CALL GET_FILE_INFO, gfi_params
         bne     finish
         lda     gfi_file_type
-        cmp     #$FA            ; INT
+        cmp     #FT_INT
         beq     open
-        lda     #$4A            ; error "Incompatible file format"
+        lda     #ERR_INCOMPATIBLE_FILE_FORMAT
         bne     finish          ; always
 
         ;; Open the file
@@ -371,7 +381,7 @@ finish:
         ;; Failure with IntBASIC ZP swapped in - restore ProDOS and flag error
 intbasic_err:
         jsr     SwapZP          ; IntBASIC > ProDOS
-        lda     #$4A            ; error "Incompatible file format"
+        lda     #ERR_INCOMPATIBLE_FILE_FORMAT
         bne     close           ; always
 .endproc
 
@@ -405,20 +415,20 @@ intbasic_err:
         ;; If it exists, is it INT?
         MLI_CALL GET_FILE_INFO, gfi_params
         beq     check
-        cmp     #$46            ; error "File not found"
+        cmp     #ERR_FILE_NOT_FOUND
         beq     create
         bne     finish          ; other error
 check:  lda     gfi_file_type   ; check type
-        cmp     #$FA            ; INT
+        cmp     #FT_INT
         beq     write           ; okay to overwrite
-        lda     #$4A            ; error "Incompatible file format"
+        lda     #ERR_INCOMPATIBLE_FILE_FORMAT
         bne     finish          ; always
 
         ;; Create the file
 create:
         MLI_CALL CREATE, create_params
         beq     write           ; success
-        cmp     #$47            ; ignore "Duplicate filename"
+        cmp     #ERR_DUPLICATE_FILENAME
         bne     finish          ; otherwise fail
 
         ;; Write the file
@@ -607,12 +617,14 @@ cmdtable:
         .byte   0
         scrcode "PREFIX"
         .byte   0
+        scrcode "CAT"
+        .byte   0
         .byte   0               ; sentinel
 
 cmdproclo:
-        .byte   <ByeCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd
+        .byte   <ByeCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd
 cmdprochi:
-        .byte   >ByeCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd
+        .byte   >ByeCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd
 
 ;;; ============================================================
 ;;; Commands should return with:
@@ -699,7 +711,7 @@ err:
         pha
         jsr     SwapZP          ; ProDOS > IntBASIC
         pla
-        bne     ShowError
+        bne     err
         ldx     #0
 :       cpx     PATHBUF
         beq     :+
@@ -718,9 +730,192 @@ set:
         pha
         jsr     SwapZP          ; ProDOS > IntBASIC
         pla
-        bne     ShowError
+        bne     err
         clc
         rts
+
+err:    jmp     ShowError
+.endproc
+
+;;; ============================================================
+;;; "CAT" or "CAT path"
+
+.proc CatCmd
+        jsr     GetPathname
+
+        jsr     SwapZP          ; IntBASIC > ProDOS
+
+        lda     PATHBUF
+        beq     use_prefix
+
+        ;; Verify file is a directory
+        MLI_CALL GET_FILE_INFO, gfi_params
+        beq     :+
+        jmp     err
+:
+        lda     gfi_file_type
+        cmp     #FT_DIR
+        beq     open
+        lda     #ERR_INCOMPATIBLE_FILE_FORMAT
+        jmp     err
+
+        ;; Use current prefix
+use_prefix:
+        MLI_CALL GET_PREFIX, prefix_params
+        beq     :+
+        jmp     err
+:
+
+        ENTRY_BUFFER := PATHBUF
+
+open:   MLI_CALL OPEN, open_params
+        beq     :+
+        jmp     err
+:
+        lda     open_ref_num
+        sta     read_ref_num
+        sta     close_ref_num
+
+        COPY16  #ENTRY_BUFFER, read_data_buffer
+
+        ;; Skip block pointers
+        COPY16  #4, read_request_count
+        MLI_CALL READ, read_params
+        beq     :+
+        jmp     err
+:
+        ;; Read header
+        COPY16  #FILE_ENTRY_SIZE, read_request_count
+        MLI_CALL READ, read_params
+        beq     :+
+        jmp     err
+:
+        jsr     print_entry_name
+        jsr     intbasic::MON_CROUT
+
+        lda     ENTRY_BUFFER + $24 - 4; entries_per_block
+        sta     entries_per_block
+        sta     entries_this_block
+        dec     entries_this_block ; this header counts as one
+
+        COPY16  ENTRY_BUFFER + $25 - 4, file_count
+
+        ;; Advance to next entry (and next block if needed)
+next:   lda     entries_this_block
+        bne     :+
+        COPY16  #5, read_request_count
+        MLI_CALL READ, read_params ; TODO: Handle EOF?
+        bne     err
+        lda     entries_per_block
+        sta     entries_this_block
+:
+        dec     entries_this_block
+        COPY16  #FILE_ENTRY_SIZE, read_request_count
+        MLI_CALL READ, read_params ; TODO: Handle EOF?
+        bne     err
+
+        ;; Active entry?
+        lda     ENTRY_BUFFER + $00 ; storage_type / name_length
+        beq     next             ; inactive - skip
+
+        lda     #' '|$80
+        jsr     intbasic::MON_COUT
+        jsr     print_entry_name
+        jsr     print_entry_type
+        jsr     intbasic::MON_CROUT
+
+        ;; More files?
+        lda     file_count
+        bne     :+
+        dec     file_count+1
+:       dec     file_count
+        lda     file_count
+        ora     file_count+1
+        bne     next
+
+close:  MLI_CALL CLOSE, close_params
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        clc
+        rts
+
+err:
+        pha
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        pla
+        jmp     ShowError
+
+.proc print_entry_name
+        ;; Print the name
+        lda     ENTRY_BUFFER + $00 ; storage_type / name_length
+        and     #$0F            ; name_length
+        sta     len
+        ldx     #0
+:       lda     ENTRY_BUFFER + $01,x ; file_name
+        ora     #$80
+        jsr     intbasic::MON_COUT
+        inx
+        len := *+1
+        cpx     #$00            ; self-modified
+        bne     :-
+        ;; Pad with spaces
+        lda     #' '|$80
+:       jsr     intbasic::MON_COUT
+        inx
+        cpx     #16
+        bne     :-
+        rts
+.endproc
+
+.proc print_entry_type
+        ldx     #0
+:       lda     types,x
+        beq     :+
+        cmp     ENTRY_BUFFER + $10
+        beq     show
+        inx
+        inx
+        inx
+        inx
+        bne     :-              ; always
+:
+        ;; Fallback
+        lda     #'$'|$80
+        jsr     intbasic::MON_COUT
+        lda     ENTRY_BUFFER + $10
+        jmp     PRBYTE
+
+        ;; Show type
+show:   ldy     #3
+:       inx
+        lda     types+0,x
+        jsr     intbasic::MON_COUT
+        dey
+        bne     :-
+        rts
+
+types:
+        .byte   FT_TXT
+        scrcode "TXT"
+        .byte   FT_BIN
+        scrcode "BIN"
+        .byte   FT_DIR
+        scrcode "DIR"
+        .byte   FT_INT
+        scrcode "INT"
+        .byte   FT_BAS
+        scrcode "BAS"
+        .byte   FT_SYS
+        scrcode "SYS"
+        .byte   0               ; sentinel
+.endproc
+
+file_count:
+        .word   0
+entries_per_block:
+        .byte   0
+entries_this_block:
+        .byte   0
+
 .endproc
 
 ;;; ============================================================

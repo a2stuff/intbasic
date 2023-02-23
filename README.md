@@ -4,11 +4,13 @@ This is a version of Steve Wozniak's Integer BASIC for the Apple II, with a wrap
 
 1. When invoked directly, the Integer BASIC `>` prompt is shown and you can type in and execute programs. The following additional commands are available at the prompt:
 
-   * `SAVE pathname` saves the current program as an INT program file.
-   * `LOAD pathname` loads an INT program file.
-   * `RUN pathname` loads and runs an INT program file.
+   * `SAVE path` saves the current program as an `INT` program file.
+   * `LOAD path` loads an `INT` program file.
+   * `RUN path` loads and runs an `INT` program file.
    * `PREFIX` shows the current ProDOS prefix.
    * `PREFIX path` sets the current ProDOS prefix.
+   * `CAT` shows the contents of the current directory.
+   * `CAT path` shows the contents of the specified directory.
    * `BYE` exits back to ProDOS.
 
 2. When invoked as an "interpreter" for an `INT` file from a program selector (such as [Bitsy Bye](https://prodos8.com/bitsy-bye/) or [Apple II DeskTop](https://a2desktop.com)), the file is loaded and executed.
