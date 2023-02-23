@@ -801,6 +801,13 @@ open:   MLI_CALL OPEN, open_params
         jmp     err
 :
         jsr     intbasic::MON_CROUT
+        lda     ENTRY_BUFFER + $00 ; storage_type / name_length
+        and     #$F0
+        cmp     #$F0            ; is volume dir?
+        bne     :+
+        lda     #'/'|$80        ; show leading '/'
+        jsr     intbasic::MON_COUT
+:
         jsr     print_entry_name
         jsr     intbasic::MON_CROUT
         jsr     intbasic::MON_CROUT
@@ -812,8 +819,19 @@ open:   MLI_CALL OPEN, open_params
 
         COPY16  ENTRY_BUFFER + $25 - 4, file_count
 
+next_file:
+        ;; More files?
+        lda     file_count
+        ora     file_count+1
+        beq     close
+        lda     file_count
+        bne     :+
+        dec     file_count+1
+:       dec     file_count
+
+next_entry:
         ;; Advance to next entry (and next block if needed)
-next:   lda     entries_this_block
+        lda     entries_this_block
         bne     :+
         COPY16  #5, read_request_count
         MLI_CALL READ, read_params ; TODO: Handle EOF?
@@ -828,7 +846,7 @@ next:   lda     entries_this_block
 
         ;; Active entry?
         lda     ENTRY_BUFFER + $00 ; storage_type / name_length
-        beq     next             ; inactive - skip
+        beq     next_entry         ; inactive - skip
 
         ;; Entry display: name, type, block count
         lda     #' '|$80
@@ -842,14 +860,7 @@ next:   lda     entries_this_block
         jsr     intbasic::PRDEC
         jsr     intbasic::MON_CROUT
 
-        ;; More files?
-        lda     file_count
-        bne     :+
-        dec     file_count+1
-:       dec     file_count
-        lda     file_count
-        ora     file_count+1
-        bne     next
+        jmp     next_file
 
 close:  MLI_CALL CLOSE, close_params
         jsr     SwapZP          ; ProDOS > IntBASIC
