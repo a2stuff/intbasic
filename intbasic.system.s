@@ -379,10 +379,7 @@ close:
         pla
 
 finish:
-        pha
-        jsr     SwapZP          ; ProDOS > IntBASIC
-        pla
-        rts
+        jmp     SwapZP          ; ProDOS > IntBASIC
 
         ;; Failure with IntBASIC ZP swapped in - restore ProDOS and flag error
 intbasic_err:
@@ -450,10 +447,7 @@ write:
         pla
 
 finish:
-        pha
-        jsr     SwapZP          ; ProDOS > IntBASIC
-        pla
-        rts
+        jmp     SwapZP          ; ProDOS > IntBASIC
 .endproc
 
 ;;; ============================================================
@@ -539,7 +533,11 @@ destroy_pathname:       .addr   PATHBUF ; in
 ;;; ============================================================
 
 ;;; Swap a chunk of the zero page that both IntBASIC and ProDOS use
+;;; Preserves: A,P
 .proc SwapZP
+        php
+        pha
+
         ldx     #ZP_SAVE_LEN-1
 :       lda     ZP_SAVE_ADDR,x
         ldy     zp_stash,x
@@ -548,6 +546,9 @@ destroy_pathname:       .addr   PATHBUF ; in
         sta     ZP_SAVE_ADDR,x
         dex
         bpl     :-
+
+        pla
+        plp
         rts
 
 zp_stash:
@@ -721,9 +722,7 @@ err:
         ;; Show current prefix
         jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL GET_PREFIX, prefix_params
-        pha
         jsr     SwapZP          ; ProDOS > IntBASIC
-        pla
         bne     err
         ldx     #0
 :       cpx     PATHBUF
@@ -740,9 +739,7 @@ err:
 set:
         jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL SET_PREFIX, prefix_params
-        pha
         jsr     SwapZP          ; ProDOS > IntBASIC
-        pla
         bne     err
         clc
         rts
@@ -860,9 +857,7 @@ close:  MLI_CALL CLOSE, close_params
         rts
 
 err:
-        pha
         jsr     SwapZP          ; ProDOS > IntBASIC
-        pla
         jmp     ShowError
 
 .proc print_entry_name
@@ -952,9 +947,7 @@ entries_this_block:
 
         jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL DESTROY, destroy_params
-        pha
         jsr     SwapZP          ; ProDOS > IntBASIC
-        pla
         bne     ShowError
         clc
         rts
