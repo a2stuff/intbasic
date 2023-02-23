@@ -64,6 +64,7 @@ A2L     =       $3e     ;general purpose
 A2H     =       $3f     ;general purpose
 A4L     =       $42     ;general purpose
 A4H     =       $43     ;general purpose
+HOME    =       $FC58
 MOVE    =       $FE2C
 PRBYTE  =       $FDDA
 
@@ -86,12 +87,14 @@ CLOSE           = $CC
 GET_EOF         = $D1
 
 FILE_ENTRY_SIZE = $27
+
 FT_TXT          = $04
 FT_BIN          = $06
 FT_DIR          = $0F
 FT_INT          = $FA
 FT_BAS          = $FC
 FT_SYS          = $FF
+
 ERR_FILE_NOT_FOUND              = $46
 ERR_DUPLICATE_FILENAME          = $47
 ERR_INCOMPATIBLE_FILE_FORMAT    = $4A
@@ -159,6 +162,8 @@ end:
         .byte   start - path    ; path buffer length
 path:   PASCAL_STRING "", $40   ; path buffer
 start:
+
+        jsr     HOME
 
 ;;; --------------------------------------------------
 ;;; Copy path somewhere safe
@@ -790,7 +795,9 @@ open:   MLI_CALL OPEN, open_params
         beq     :+
         jmp     err
 :
+        jsr     intbasic::MON_CROUT
         jsr     print_entry_name
+        jsr     intbasic::MON_CROUT
         jsr     intbasic::MON_CROUT
 
         lda     ENTRY_BUFFER + $24 - 4; entries_per_block
