@@ -77,6 +77,7 @@ TIMELO          := $BF92
 
 QUIT            = $65
 CREATE          = $C0
+DESTROY         = $C1
 GET_FILE_INFO   = $C4
 SET_PREFIX      = $C6
 GET_PREFIX      = $C7
@@ -530,6 +531,11 @@ create_storage_type:    .byte   0       ; in
 create_date:            .word   0       ; in
 create_time:            .word   0       ; in
 
+;;; DESTROY
+destroy_params:
+destroy_param_count:    .byte   1       ; in
+destroy_pathname:       .addr   PATHBUF ; in
+
 ;;; ============================================================
 
 ;;; Swap a chunk of the zero page that both IntBASIC and ProDOS use
@@ -624,12 +630,14 @@ cmdtable:
         .byte   0
         scrcode "CAT"
         .byte   0
+        scrcode "DELETE"
+        .byte   0
         .byte   0               ; sentinel
 
 cmdproclo:
-        .byte   <ByeCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd
+        .byte   <ByeCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<DeleteCmd
 cmdprochi:
-        .byte   >ByeCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd
+        .byte   >ByeCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>DeleteCmd
 
 ;;; ============================================================
 ;;; Commands should return with:
@@ -929,6 +937,27 @@ entries_per_block:
 entries_this_block:
         .byte   0
 
+.endproc
+
+;;; ============================================================
+;;; "DELETE pathname"
+
+.proc DeleteCmd
+        jsr     GetPathname
+        lda     PATHBUF
+        bne     :+
+        sec                     ; syntax error
+        rts
+:
+
+        jsr     SwapZP          ; IntBASIC > ProDOS
+        MLI_CALL DESTROY, destroy_params
+        pha
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        pla
+        bne     ShowError
+        clc
+        rts
 .endproc
 
 ;;; ============================================================

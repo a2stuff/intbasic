@@ -11,6 +11,7 @@ This is a version of Steve Wozniak's Integer BASIC for the Apple II, with a wrap
    * `PREFIX path` sets the current ProDOS prefix.
    * `CAT` shows the contents of the current directory.
    * `CAT path` shows the contents of the specified directory.
+   * `DELETE path` deletes the specified file.
    * `BYE` exits back to ProDOS.
 
 2. When invoked as an "interpreter" for an `INT` file from a program selector (such as [Bitsy Bye](https://prodos8.com/bitsy-bye/) or [Apple II DeskTop](https://a2desktop.com)), the file is loaded and executed.
