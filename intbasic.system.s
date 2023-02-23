@@ -825,10 +825,16 @@ next:   lda     entries_this_block
         lda     ENTRY_BUFFER + $00 ; storage_type / name_length
         beq     next             ; inactive - skip
 
+        ;; Entry display: name, type, block count
         lda     #' '|$80
         jsr     intbasic::MON_COUT
         jsr     print_entry_name
         jsr     print_entry_type
+        lda     #' '|$80
+        jsr     intbasic::MON_COUT
+        ldx     ENTRY_BUFFER + $13
+        lda     ENTRY_BUFFER + $14
+        jsr     intbasic::PRDEC
         jsr     intbasic::MON_CROUT
 
         ;; More files?
