@@ -21,11 +21,9 @@
 ;;;  $BF00   +-----------+
 ;;;          | IO_BUFFER |
 ;;;  $BB00   +-----------+
-;;;          | (free)... |
-;;;          | ......... |
-;;;          | ......... |
-;;; ~$B900   +-----------+
-;;;          | Init      |  Program loader
+;;;          | Init &    |
+;;;          | Command   |
+;;;          | Processor |
 ;;;  $B425   +-----------+
 ;;;          | IntBASIC  |
 ;;;          |           |
@@ -78,6 +76,7 @@ TIMELO          := $BF92
 QUIT            = $65
 CREATE          = $C0
 DESTROY         = $C1
+RENAME          = $C2
 GET_FILE_INFO   = $C4
 SET_PREFIX      = $C6
 GET_PREFIX      = $C7
@@ -194,8 +193,8 @@ skip:
         sta     BITMAP+$A*2     ; Pages $A0-$A7
         sta     BITMAP+$A*2+1   ; Pages $A8-$AF
         sta     BITMAP+$B*2     ; Pages $B0-$B7
-        lda     #%11000001
-        sta     BITMAP+$B*2+1   ; Pages $B8-$B9, ProDOS global page ($BF)
+        lda     #%11100001
+        sta     BITMAP+$B*2+1   ; Pages $B8-$BA, ProDOS global page ($BF)
 
 ;;; --------------------------------------------------
 ;;; Relocate INTBASIC and our stub up to target
@@ -530,6 +529,12 @@ destroy_params:
 destroy_param_count:    .byte   1       ; in
 destroy_pathname:       .addr   PATHBUF ; in
 
+;;; RENAME
+rename_params:
+rename_param_count:    .byte   2       ; in
+rename_pathname:       .addr   PATHBUF ; in
+rename_new_pathname:   .addr   0       ; in, populated at runtime
+
 ;;; ============================================================
 
 ;;; Swap a chunk of the zero page that both IntBASIC and ProDOS use
@@ -597,10 +602,10 @@ dispatch:
         cmdnum := *+1
         ldx     #$00            ; self-modified
         lda     cmdproclo,x
-        sta     disp
+        sta     @disp
         lda     cmdprochi,x
-        sta     disp+1
-        disp := *+1
+        sta     @disp+1
+        @disp := *+1
         jsr     $0000           ; self-modified
 
         ;; If it returns with C=0, pass empty command line back
@@ -633,12 +638,14 @@ cmdtable:
         .byte   0
         scrcode "DELETE"
         .byte   0
+        scrcode "RENAME"
+        .byte   0
         .byte   0               ; sentinel
 
 cmdproclo:
-        .byte   <ByeCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<DeleteCmd
+        .byte   <ByeCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<DeleteCmd,<RenameCmd
 cmdprochi:
-        .byte   >ByeCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>DeleteCmd
+        .byte   >ByeCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>DeleteCmd,>RenameCmd
 
 ;;; ============================================================
 ;;; Commands should return with:
@@ -875,13 +882,13 @@ err:
         ;; Print the name
         lda     ENTRY_BUFFER + $00 ; storage_type / name_length
         and     #$0F            ; name_length
-        sta     len
+        sta     @len
         ldx     #0
 :       lda     ENTRY_BUFFER + $01,x ; file_name
         ora     #$80
         jsr     intbasic::MON_COUT
         inx
-        len := *+1
+        @len := *+1
         cpx     #$00            ; self-modified
         bne     :-
         ;; Pad with spaces
@@ -958,6 +965,58 @@ entries_this_block:
 
         jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL DESTROY, destroy_params
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        bne     ShowError
+        clc
+        rts
+.endproc
+
+;;; ============================================================
+;;; "RENAME pathname,pathname2"
+
+.proc RenameCmd
+        jsr     GetPathname
+        lda     PATHBUF
+        bne     :+
+        sec                     ; syntax error
+        rts
+:
+        ;; Find ','
+        tax
+        ldy     #0
+:       lda     PATHBUF,x
+        cmp     #','
+        beq     found
+        iny
+        dex
+        bpl     :-
+        sec                     ; syntax error
+        rts
+
+found:
+        ;; Length of second string
+        tya
+        sta     PATHBUF,x
+        iny
+        sty     @sub
+
+        ;; Length of first string
+        sec
+        lda     PATHBUF
+        @sub = *+1
+        sbc     #$00            ; self-modified
+        sta     PATHBUF
+
+        clc
+        lda     PATHBUF
+        adc     #<(PATHBUF+1)
+        sta     rename_new_pathname
+        lda     #0
+        adc     #>(PATHBUF+1)
+        sta     rename_new_pathname+1
+
+        jsr     SwapZP          ; IntBASIC > ProDOS
+        MLI_CALL RENAME, rename_params
         jsr     SwapZP          ; ProDOS > IntBASIC
         bne     ShowError
         clc
