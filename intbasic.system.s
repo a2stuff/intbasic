@@ -142,6 +142,7 @@ ZP_SAVE_LEN     =  $15
 
         IO_BUFFER := $BB00
         PATHBUF := $280
+        PATH2   := $2C0
 
 ;;; ProDOS Interpreter Protocol
 ;;; ProDOS 8 Technical Reference Manual
@@ -543,8 +544,8 @@ destroy_pathname:       .addr   PATHBUF ; in
 ;;; RENAME
 rename_params:
 rename_param_count:    .byte   2       ; in
-rename_pathname:       .addr   PATHBUF ; in
-rename_new_pathname:   .addr   0       ; in, populated at runtime
+rename_pathname:       .addr   PATH2   ; in
+rename_new_pathname:   .addr   PATHBUF ; in
 
 ;;; ============================================================
 
@@ -674,17 +675,18 @@ ByeCmd := Quit
 
 .proc SaveCmd
         jsr     GetPathname
-        lda     PATHBUF
-        bne     :+
-        sec                     ; syntax error
-        rts
-:
+        beq     syn
+
         jsr     SaveINTFile
         bne     err
         clc
         rts
 
 err:    jmp     ShowError
+
+        ;; Syntax error
+syn:    sec
+        rts
 .endproc
 
 ;;; ============================================================
@@ -692,11 +694,8 @@ err:    jmp     ShowError
 
 .proc LoadCmd
         jsr     GetPathname
-        lda     PATHBUF
-        bne     :+
-        sec                     ; syntax error
-        rts
-:
+        beq     syn
+
         ;; Pop out of command hook - no going back now
         pla
         pla
@@ -710,6 +709,10 @@ err:
         jsr     ShowError
         jsr     ColdStart
         jmp     intbasic::WARM
+
+        ;; Syntax error
+syn:    sec
+        rts
 .endproc
 
 ;;; ============================================================
@@ -721,7 +724,6 @@ err:
         pla
 
         jsr     GetPathname
-        lda     PATHBUF
         bne     :+
         jmp     intbasic::RUNWARM
 :
@@ -736,7 +738,6 @@ err:
 
 .proc PrefixCmd
         jsr     GetPathname
-        lda     PATHBUF
         bne     set
 
         ;; Show current prefix
@@ -775,7 +776,6 @@ err:    jmp     ShowError
 
         jsr     SwapZP          ; IntBASIC > ProDOS
 
-        lda     PATHBUF
         beq     use_prefix
 
         ;; Verify file is a directory
@@ -970,17 +970,17 @@ entries_this_block:
 
 .proc DeleteCmd
         jsr     GetPathname
-        lda     PATHBUF
-        bne     :+
-        sec                     ; syntax error
-        rts
-:
+        beq     syn
 
         jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL DESTROY, destroy_params
         jsr     SwapZP          ; ProDOS > IntBASIC
         bne     ShowError
         clc
+        rts
+
+        ;; Syntax error
+syn:    sec
         rts
 .endproc
 
@@ -989,62 +989,48 @@ entries_this_block:
 
 .proc RenameCmd
         jsr     GetPathname
-        lda     PATHBUF
-        bne     :+
-        sec                     ; syntax error
-        rts
-:
-        ;; Find ','
-        tax
-        ldy     #0
+        beq     syn
+        lda     intbasic::IN,y
+        cmp     #','|$80
+        bne     syn
+
+        ;; Copy first path to PATH2
+        ldx     PATHBUF
 :       lda     PATHBUF,x
-        cmp     #','
-        beq     found
-        iny
+        sta     PATH2,x
         dex
         bpl     :-
-        sec                     ; syntax error
-        rts
 
-found:
-        ;; Length of second string
-        tya
-        sta     PATHBUF,x
+        ;; Get second path
         iny
-        sty     @sub
+        jsr     GetPathname
+        beq     syn
 
-        ;; Length of first string
-        sec
-        lda     PATHBUF
-        @sub = *+1
-        sbc     #$00            ; self-modified
-        sta     PATHBUF
-
-        clc
-        lda     PATHBUF
-        adc     #<(PATHBUF+1)
-        sta     rename_new_pathname
-        lda     #0
-        adc     #>(PATHBUF+1)
-        sta     rename_new_pathname+1
-
+        ;; Do the rename
         jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL RENAME, rename_params
         jsr     SwapZP          ; ProDOS > IntBASIC
         bne     ShowError
         clc
         rts
+
+        ;; Syntax error
+syn:    sec
+        rts
 .endproc
 
 ;;; ============================================================
-;;; Populate `PATHBUF` with rest of command line (skipping spaces)
+;;; Populate `PATHBUF` with rest of command line; skips spaces,
+;;; stops on newline or comma.
 
 ;;; Input: Y = end of command in `intbasic::IN`
-;;; Output: `PATHBUF` is length-prefixed path
+;;; Output: `PATHBUF` is length-prefixed path, A=length, w/ Z set
 .proc GetPathname
         ldx     #0
 loop:   lda     intbasic::IN,y
         cmp     #$8D            ; CR
+        beq     done
+        cmp     #','|$80
         beq     done
         cmp     #$A0            ; space
         beq     skip
@@ -1055,6 +1041,7 @@ skip:   iny
         bne     loop            ; always
 
 done:   stx     PATHBUF
+        txa
         rts
 .endproc ; GetPathname
 
