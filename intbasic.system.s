@@ -634,6 +634,8 @@ cmdtable:
         .byte   0
         scrcode "PREFIX"
         .byte   0
+        scrcode "CATALOG"       ; must precede "CAT"
+        .byte   0
         scrcode "CAT"
         .byte   0
         scrcode "DELETE"
@@ -643,9 +645,9 @@ cmdtable:
         .byte   0               ; sentinel
 
 cmdproclo:
-        .byte   <ByeCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<DeleteCmd,<RenameCmd
+        .byte   <ByeCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd
 cmdprochi:
-        .byte   >ByeCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>DeleteCmd,>RenameCmd
+        .byte   >ByeCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd
 
 ;;; ============================================================
 ;;; Commands should return with:
