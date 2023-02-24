@@ -65,6 +65,7 @@ A4H     =       $43     ;general purpose
 HOME    =       $FC58
 MOVE    =       $FE2C
 PRBYTE  =       $FDDA
+COUT    =       $FDED
 
 ;;; ProDOS Equates
 MLI             := $BF00
@@ -135,17 +136,6 @@ ZP_SAVE_LEN     =  $15
         .addr   params
 .endmacro
 
-.macro PASCAL_STRING str, res
-        .local  data
-        .local  end
-        .byte   end - data
-data:   .byte   str
-end:
-        .if .paramcount > 1
-        .res    res - (end - data), 0
-        .endif
-.endmacro
-
 ;;; ============================================================
 ;;; System Program
 ;;; ============================================================
@@ -159,23 +149,44 @@ end:
         .org $2000
         jmp     start
         .byte   $EE, $EE        ; Interpreter signature
-        .byte   start - path    ; path buffer length
-path:   PASCAL_STRING "", $40   ; path buffer
+        .byte   $41             ; path buffer length
+path:   .res    $41,0           ; path buffer
+
+banner:
+        ;;      "----------------------------------------"
+        scrcode "              INTEGER BASIC"
+        .byte   $8D
+        scrcode "   COPYRIGHT 1977, APPLE COMPUTER INC."
+        .byte   $8D
+        .byte   0
+
 start:
 
+;;; --------------------------------------------------
+;;; Display banner
+
         jsr     HOME
+        lda     path
+        bne     done_banner
+        ldx     #0
+:       lda     banner,x
+        beq     done_banner
+        jsr     COUT
+        inx
+        bne     :-              ; always
+done_banner:
 
 ;;; --------------------------------------------------
 ;;; Copy path somewhere safe
 
         ldx     path
         stx     PATHBUF
-        beq     skip
+        beq     done_copy
 :       lda     path,x
         sta     PATHBUF,x
         dex
         bpl     :-
-skip:
+done_copy:
 
 ;;; --------------------------------------------------
 ;;; Configure system bitmap

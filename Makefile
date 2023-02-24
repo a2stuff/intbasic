@@ -8,7 +8,7 @@ TARGETS := $(OUTDIR)/intbasic.system.SYS
 
 XATTR := $(shell command -v xattr 2> /dev/null)
 
-.PHONY: clean all
+.PHONY: clean all package
 all: $(OUTDIR) $(TARGETS)
 
 $(OUTDIR):
@@ -30,3 +30,6 @@ $(OUTDIR)/%.SYS: $(OUTDIR)/%.o
 ifdef XATTR
 	xattr -wx prodos.AuxType '00 20' $@
 endif
+
+package:
+	./package.sh
