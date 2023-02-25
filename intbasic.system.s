@@ -621,7 +621,7 @@ syn:    lda     #'!'|$80
         sta     intbasic::IN,x
         rts
 
-NUM_CMDS = 10
+NUM_CMDS = 11
 
 cmdtable:
         scrcode "BYE"
@@ -644,12 +644,14 @@ cmdtable:
         .byte   0
         scrcode "BSAVE"
         .byte   0
+        scrcode "BLOAD"
+        .byte   0
         .byte   0               ; sentinel
 
 cmdproclo:
-        .byte   <QuitCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd
+        .byte   <QuitCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd
 cmdprochi:
-        .byte   >QuitCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd
+        .byte   >QuitCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd
         .assert * - cmdproclo = NUM_CMDS * 2, error, "table size"
 
 cmdparse:
@@ -663,6 +665,7 @@ cmdparse:
         .byte   ParseFlags::path                        ; DELETE
         .byte   ParseFlags::path | ParseFlags::path2    ; RENAME
         .byte   ParseFlags::path | ParseFlags::args     ; BSAVE
+        .byte   ParseFlags::path | ParseFlags::args     ; BLOAD
         .assert * - cmdparse = NUM_CMDS, error, "table size"
 
 parse_flags:
@@ -1241,6 +1244,50 @@ entries_this_block:
 
         jmp     WriteFileCommon
 .endproc ; BSaveCmd
+
+;;; ============================================================
+;;; "BLOAD pathname[,A<address>][,L<length>]"
+
+.proc BLoadCmd
+        jsr     SwapZP          ; IntBASIC > ProDOS
+
+        ;; Check type, bail if not BIN
+        MLI_CALL GET_FILE_INFO, gfi_params
+        bne     finish
+        lda     gfi_file_type
+        cmp     #FT_BIN
+        beq     :+
+        lda     #ERR_INCOMPATIBLE_FILE_FORMAT
+        bne     finish          ; always
+:
+        LDXY    gfi_aux_type    ; default load address
+        lda     arg_addr
+        ora     arg_addr+1
+        beq     :+
+        LDXY    arg_addr        ; arg override
+:       STXY    read_data_buffer
+
+        LDXY    #$FFFF          ; read everything
+        lda     arg_len
+        ora     arg_len+1
+        beq     :+
+        LDXY    arg_len         ; arg override
+:       STXY    read_request_count
+
+        MLI_CALL OPEN, open_params
+        bne     finish
+        lda     open_ref_num
+        sta     read_ref_num
+        sta     close_ref_num
+        MLI_CALL READ, read_params
+        pha
+        MLI_CALL CLOSE, close_params
+        pla
+
+finish:
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        jmp     FinishCommand
+.endproc ; BLoadCmd
 
 ;;; ============================================================
 
