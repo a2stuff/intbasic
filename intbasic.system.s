@@ -240,7 +240,7 @@ done_copy:
 
         ;; Make LOAD/SAVE just QUIT to ProDOS
         lda     #OPC_JMP_abs
-        LDXY    #Quit
+        LDXY    #QuitCmd
         sta     intbasic::LOAD+0
         STXY    intbasic::LOAD+1
         sta     intbasic::SAVE+0
@@ -266,8 +266,9 @@ done_copy:
 
 have_path:
         jsr     LoadINTFile
-        bne     Quit            ; fail - just QUIT back to ProDOS
-
+        beq     :+
+        jmp     QuitCmd         ; fail - just QUIT back to ProDOS
+:
         ;; Hold Open- or Solid-Apple to allow returning to prompt
         lda     BUTN0
         ora     BUTN1
@@ -275,7 +276,7 @@ have_path:
 
         ;; When END or ERRMESS invoked, just QUIT
         lda     #OPC_JMP_abs
-        LDXY    #Quit
+        LDXY    #QuitCmd
         sta     intbasic::WARM
         STXY    intbasic::WARM+1
         sta     intbasic::ERRMESS
@@ -294,13 +295,6 @@ have_path:
         STXY    intbasic::HIMEM
         jmp     intbasic::NEW   ; reset PP, PV, stacks
 .endproc ; ColdStart
-
-;;; ============================================================
-
-.proc Quit
-        MLI_CALL QUIT, quit_params
-        brk
-.endproc ; Quit
 
 ;;; ============================================================
 
@@ -511,6 +505,15 @@ zp_stash:
 .endproc ; SwapZP
 
 ;;; ============================================================
+;;; Command Hook
+;;; ============================================================
+
+.enum ParseFlags
+        path     = %00000001    ; parse path
+        path_opt = %00000010    ; path is optional (not an error if empty)
+        path2    = %00000100    ; parse second path (for RENAME)
+        args     = %00001000    ; parse args (A, L)
+.endenum
 
 ;;; Command Hook - replaces MON_NXTCHAR call in GETCMD to
 ;;; allow extra commands to be added.
@@ -551,27 +554,74 @@ next:   inx
 dispatch:
         cmdnum := *+1
         ldx     #$00            ; self-modified
+
         lda     cmdproclo,x
         sta     @disp
         lda     cmdprochi,x
         sta     @disp+1
+        lda     cmdparse,x
+        sta     parse_flags
+
+        ;; ..............................
+        ;; Parse arguments
+
+        lda     #0
+        sta     PATHBUF
+
+        lda     parse_flags
+        and     #ParseFlags::path
+        beq     :+
+        jsr     GetPathname
+        bne     :+
+        lda     parse_flags     ; no path - was it optional?
+        and     #ParseFlags::path_opt
+        beq     syn             ; required, so error
+:
+        lda     parse_flags
+        and     #ParseFlags::path2
+        beq     :+
+        jsr     ParseComma
+        bne     syn
+        jsr     GetPathname
+        beq     syn
+:
+        lda     parse_flags
+        and     #ParseFlags::args
+        beq     :+
+        jsr     ParseArgs
+        bcs     syn
+:
+        ;; Anything remaining is an error
+:       lda     intbasic::IN,y
+        cmp     #$8D
+        beq     :+
+        cmp     #' '|$80
+        bne     syn
+        iny
+        bne     :-              ; always
+:
+        ;; ..............................
+        ;; Actual dispatch
+
         @disp := *+1
-        jsr     $0000           ; self-modified
+        jsr     $FFFF           ; self-modified
 
         ;; If it returns with C=0, pass empty command line back
+        ldx     #0
         bcs     :+
         lda     #$8D
-        ldx     #0
         sta     intbasic::IN,x
         rts
 :
         ;; Force a syntax error
-        lda     #'!'|$80
-        sta     intbasic::IN
+syn:    lda     #'!'|$80
+        sta     intbasic::IN,x
+        inx
         lda     #$8D
-        sta     intbasic::IN+1
-        ldx     #1
+        sta     intbasic::IN,x
         rts
+
+NUM_CMDS = 10
 
 cmdtable:
         scrcode "BYE"
@@ -597,11 +647,259 @@ cmdtable:
         .byte   0               ; sentinel
 
 cmdproclo:
-        .byte   <ByeCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd
+        .byte   <QuitCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd
 cmdprochi:
-        .byte   >ByeCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd
+        .byte   >QuitCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd
+        .assert * - cmdproclo = NUM_CMDS * 2, error, "table size"
 
+cmdparse:
+        .byte   0                                       ; BYE
+        .byte   ParseFlags::path                        ; SAVE
+        .byte   ParseFlags::path                        ; LOAD
+        .byte   ParseFlags::path | ParseFlags::path_opt ; RUN
+        .byte   ParseFlags::path | ParseFlags::path_opt ; PREFIX
+        .byte   ParseFlags::path | ParseFlags::path_opt ; CATALOG
+        .byte   ParseFlags::path | ParseFlags::path_opt ; CAT
+        .byte   ParseFlags::path                        ; DELETE
+        .byte   ParseFlags::path | ParseFlags::path2    ; RENAME
+        .byte   ParseFlags::path | ParseFlags::args     ; BSAVE
+        .assert * - cmdparse = NUM_CMDS, error, "table size"
+
+parse_flags:
+        .byte   0
+
+;;; ============================================================
+;;; Note: Doesn't advance Y
+;;; Output: A = char, Z=1 if CR or ','
+
+.proc GetNextChar
+        lda     intbasic::IN,y
+        cmp     #','|$80
+        beq     ret
+        cmp     #$8D            ; CR
+ret:    rts
+.endproc ; GetNextChar
+
+;;; ============================================================
+;;; Parse path from command line into `PATHBUF`; skips spaces,
+;;; stops on newline or comma.
+
+;;; Input: Y = end of command in `intbasic::IN`
+;;; Output: `PATHBUF` is length-prefixed path, A=length, w/ Z set
+;;;         Previous `PATHBUF` copied to `PATH2`
+;;; Assert: `PATHBUF` is valid
+.proc GetPathname
+        ;; Copy first path to PATH2
+        ldx     PATHBUF
+        stx     PATH2
+        beq     start
+:       lda     PATHBUF,x
+        sta     PATH2,x
+        dex
+        bne     :-
+
+start:
+        ;; Get next path
+        ldx     #0
+loop:   jsr     GetNextChar
+        beq     done            ; if CR or ','
+        cmp     #$A0            ; space
+        beq     skip
+        and     #$7F
+        sta     PATHBUF+1,x
+        inx
+skip:   iny
+        bne     loop            ; always
+
+done:   stx     PATHBUF
+        txa
+        rts
+.endproc ; GetPathname
+
+;;; ============================================================
+;;; Tries to consume a comma from the input
+;;; Output: Z=1 if comma seen, Z=0 otherwise
+.proc ParseComma
+        jsr     GetNextChar
+        cmp     #','|$80
+        bne     ret
+        iny
+        lda     #0              ; set Z=1 after INY
+ret:    rts
+.endproc
+
+;;; ============================================================
+;;; Parse ,A<addr> and ,L<len> args if present
+;;;
+;;; Input: Y = parse position in `intbasic::IN`
+;;; Output: `arg_addr` and `arg_len` populated (or $0000)
+;;;         C=1 on syntax error, C=0 otherwise
+
+.proc ParseArgs
+        ;; Init all args to 0
+        ldx     #(arg_end - arg_start)-1
+        lda     #0
+:       sta     arg_start,x
+        dex
+        bpl     :-
+
+        ;; Parse an arg
+loop:   jsr     ParseComma
+        bne     ok              ; nope - we're done
+        jsr     GetNextChar
+        cmp     #'A'|$80
+        beq     addr
+        cmp     #'L'|$80
+        beq     len
+
+syn:    sec
+        rts
+
+ok:     clc
+        rts
+
+addr:   jsr     GetVal
+        bcs     syn
+        ldx     #arg_addr - arg_start
+        bpl     apply           ; always
+
+len:    jsr     GetVal
+        bcs     syn
+        ldx     #arg_len - arg_start
+        ;; bpl apply            ; always
+
+        ;; Move acc into appropriate arg word
+apply:  lda     acc
+        sta     arg_start,x
+        lda     acc+1
+        sta     arg_start+1,x
+        jmp     loop
+
+;;; Parse decimal or hex word, populate `acc`
+.proc GetVal
+        lda     #0
+        sta     acc
+        sta     acc+1
+        iny
+        lda     intbasic::IN,y
+        cmp     #'$'|$80
+        beq     hex
+
+
+.proc decimal
+        jsr     GetNextChar
+        beq     syn             ; err if no digits
+:       jsr     digit           ; convert if digit
+        bcs     syn             ; not a digit
+        iny                     ; advance
+        jsr     GetNextChar
+        bne     :-              ; get another
+        clc
+        rts
+
+        ;; A=char, shifts digit into `acc`
+        ;; or return C=1 if invalid
+
+digit:  cmp     #'0'|$80
+        bcc     syn
+        cmp     #'9'|$80+1
+        bcs     syn
+        and     #$0F
+        pha
+
+        ;; Multiply acc by 10
+        lda     acc
+        sta     tmpw
+        lda     acc+1
+        sta     tmpw+1
+        ldx     #9
+:       jsr     do_add
+        dex
+        bne     :-
+
+        ;; Add in new units
+        pla
+        sta     tmpw
+        lda     #0
+        sta     tmpw+1
+        jsr     do_add
+        clc
+        rts
+
+        ;; Add `tmpw` into `acc`
+do_add: clc
+        lda     acc
+        adc     tmpw
+        sta     acc
+        lda     acc+1
+        adc     tmpw+1
+        sta     acc+1
+        rts
+
+.endproc ; decimal
+
+.proc hex
+        iny                     ; past '$'
+        jsr     GetNextChar
+        beq     syn             ; err if no digits
+:       jsr     digit           ; convert if digit
+        bcs     syn             ; not a digit
+        iny                     ; advance
+        jsr     GetNextChar
+        bne     :-              ; get another
+        clc
+        rts
+
+        ;; A=char, shifts digit into `acc`
+        ;; or return C=1 if invalid
+
+digit:  cmp     #'0'|$80
+        bcc     syn
+        cmp     #'9'|$80+1
+        bcc     :+
+        cmp     #'A'|$80
+        bcc     syn
+        cmp     #'F'|$80+1
+        bcs     syn
+        sbc     #6              ; adjust to A -> 10
+:       and     #$0F
+
+        ;; Multiply `acc` by 16
+        ldx     #3
+:       asl     acc
+        rol     acc+1
+        dex
+        bpl     :-
+
+        ;; Add in new units
+        ora     acc
+        sta     acc
+        clc
+        rts
+
+syn:    sec
+        rts
+.endproc ; hex
+
+tmpw:   .word   0
+
+.endproc ; GetVal
+
+acc:    .word   0
+
+.endproc ; ParseArgs
 .endproc ; CommandHook
+
+;;; ============================================================
+;;; Parsed Arguments
+;;; ============================================================
+
+arg_start:
+arg_addr:
+        .word   0
+arg_len:
+        .word   0
+arg_end:
 
 ;;; ============================================================
 ;;; Commands should return with:
@@ -610,18 +908,20 @@ cmdprochi:
 ;;; Commands are run with IntBASIC ZP swapped in
 ;;; ============================================================
 
-ByeCmd := Quit
+;;; ============================================================
+;;; "BYE"
+
+.proc QuitCmd
+        jsr     SwapZP          ; IntBASIC > ProDOS
+        MLI_CALL QUIT, quit_params
+        brk
+.endproc ; QuitCmd
 
 ;;; ============================================================
 ;;; "SAVE pathname"
 
 .proc SaveCmd
-        jsr     GetPathname
-        beq     syn
-
-        ;; Set date, file type, aux type, data address and length
-        jsr     SetCreateDate
-
+        ;; Set file type, aux type, data address and length
         lda     #FT_INT
         sta     create_file_type
 
@@ -641,19 +941,12 @@ ByeCmd := Quit
         sta     write_request_count+1
 
         jmp     WriteFileCommon
-
-        ;; Syntax error
-syn:    sec
-        rts
 .endproc ; SaveCmd
 
 ;;; ============================================================
 ;;; "LOAD pathname"
 
 .proc LoadCmd
-        jsr     GetPathname
-        beq     syn
-
         ;; Pop out of command hook - no going back now
         pla
         pla
@@ -667,10 +960,6 @@ err:
         jsr     ShowError
         jsr     ColdStart
         jmp     intbasic::WARM
-
-        ;; Syntax error
-syn:    sec
-        rts
 .endproc ; LoadCmd
 
 ;;; ============================================================
@@ -681,21 +970,20 @@ syn:    sec
         pla
         pla
 
-        jsr     GetPathname
-        bne     :+
-        jmp     intbasic::RUNWARM
-:
+        lda     PATHBUF
+        beq     run             ; no path, just RUN
+
         jsr     ColdStart
         jsr     LoadINTFile
         bne     LoadCmd::err
-        jmp     intbasic::RUNWARM
+run:    jmp     intbasic::RUNWARM
 .endproc ; RunCmd
 
 ;;; ============================================================
 ;;; "PREFIX" or "PREFIX pathname"
 
 .proc PrefixCmd
-        jsr     GetPathname
+        lda     PATHBUF
         bne     set
 
         ;; Show current prefix
@@ -710,7 +998,7 @@ syn:    sec
         ora     #$80
         jsr     intbasic::MON_COUT
         inx
-        bne     :-
+        bne     :-              ; always
 :       clc
         rts
 
@@ -726,10 +1014,9 @@ err:    jmp     FinishCommand
 ;;; "CAT" or "CAT path"
 
 .proc CatCmd
-        jsr     GetPathname
-
         jsr     SwapZP          ; IntBASIC > ProDOS
 
+        lda     PATHBUF
         beq     use_prefix
 
         ;; Verify file is a directory
@@ -923,64 +1210,27 @@ entries_this_block:
 ;;; "DELETE pathname"
 
 .proc DeleteCmd
-        jsr     GetPathname
-        beq     syn
-
         jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL DESTROY, destroy_params
         jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     FinishCommand
-
-        ;; Syntax error
-syn:    sec
-        rts
 .endproc ; DeleteCmd
 
 ;;; ============================================================
 ;;; "RENAME pathname,pathname2"
 
 .proc RenameCmd
-        jsr     GetPathname
-        beq     syn
-        jsr     GetNextChar
-        cmp     #','|$80
-        bne     syn
-
-        ;; Copy first path to PATH2
-        ldx     PATHBUF
-:       lda     PATHBUF,x
-        sta     PATH2,x
-        dex
-        bpl     :-
-
-        ;; Get second path
-        iny
-        jsr     GetPathname
-        beq     syn
-
-        ;; Do the rename
         jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL RENAME, rename_params
         jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     FinishCommand
-
-        ;; Syntax error
-syn:    sec
-        rts
 .endproc ; RenameCmd
 
 ;;; ============================================================
 ;;; "BSAVE pathname[,A<address>][,L<length>]"
 
 .proc BSaveCmd
-        jsr     GetPathname
-        beq     syn
-        jsr     ParseArgs
-        bcs     syn
-
-        ;; Set date, file type, aux type, data address and length
-        jsr     SetCreateDate
-
+        ;; Set file type, aux type, data address and length
         lda     #FT_BIN
         sta     create_file_type
         LDXY    arg_addr
@@ -990,232 +1240,7 @@ syn:    sec
         STXY    write_request_count
 
         jmp     WriteFileCommon
-
-        ;; Syntax error
-syn:    sec
-        rts
 .endproc ; BSaveCmd
-
-;;; ============================================================
-;;; Populate `PATHBUF` with rest of command line; skips spaces,
-;;; stops on newline or comma.
-
-;;; Input: Y = end of command in `intbasic::IN`
-;;; Output: `PATHBUF` is length-prefixed path, A=length, w/ Z set
-.proc GetPathname
-        ldx     #0
-loop:   jsr     GetNextChar
-        beq     done            ; if CR or ','
-        cmp     #$A0            ; space
-        beq     skip
-        and     #$7F
-        sta     PATHBUF+1,x
-        inx
-skip:   iny
-        bne     loop            ; always
-
-done:   stx     PATHBUF
-        txa
-        rts
-.endproc ; GetPathname
-
-;;; ============================================================
-
-;;; Note: Doesn't advance Y
-;;; Output: A = char, Z=1 if CR or ','
-.proc GetNextChar
-        lda     intbasic::IN,y
-        cmp     #','|$80
-        beq     ret
-        cmp     #$8D            ; CR
-ret:    rts
-.endproc ; GetNextChar
-
-;;; ============================================================
-;;; Parse ,A<addr> and ,L<len> args if present
-;;;
-;;; Input: Y = parse position in `intbasic::IN`
-;;; Output: `arg_addr` and `arg_len` populated (or $0000)
-;;;         C=1 on syntax error, C=0 otherwise
-
-.proc ParseArgs
-        ;; Init all args to 0
-        ldx     #(arg_end - arg_start)-1
-        lda     #0
-:       sta     arg_start,x
-        dex
-        bpl     :-
-
-        ;; Parse an arg
-loop:   jsr     GetNextChar
-        bne     syn             ; not CR or ','
-        cmp     #$8D
-        beq     ok              ; CR
-        iny
-        jsr     GetNextChar
-        cmp     #'A'|$80
-        beq     addr
-        cmp     #'L'|$80
-        beq     len
-
-syn:    sec
-        rts
-
-ok:     clc
-        rts
-
-addr:   jsr     GetVal
-        bcs     syn
-        ldx     #arg_addr - arg_start
-        bpl     apply           ; always
-
-len:    jsr     GetVal
-        bcs     syn
-        ldx     #arg_len - arg_start
-        ;; bpl apply            ; always
-
-        ;; Move acc into appropriate arg word
-apply:  lda     acc
-        sta     arg_start,x
-        lda     acc+1
-        sta     arg_start+1,x
-        jmp     loop
-
-;;; --------------------------------------------------
-
-acc:    .word   0               ; accumulator
-
-;;; --------------------------------------------------
-
-;;; Parse decimal or hex word, populate `acc`
-.proc GetVal
-        lda     #0
-        sta     acc
-        sta     acc+1
-        iny
-        lda     intbasic::IN,y
-        cmp     #'$'|$80
-        beq     hex
-
-
-.proc decimal
-        jsr     GetNextChar
-        beq     syn             ; err if no digits
-:       jsr     digit           ; convert if digit
-        bcs     syn             ; not a digit
-        iny                     ; advance
-        jsr     GetNextChar
-        bne     :-              ; get another
-        clc
-        rts
-
-        ;; A=char, shifts digit into `acc`
-        ;; or return C=1 if invalid
-
-digit:  cmp     #'0'|$80
-        bcc     syn
-        cmp     #'9'|$80+1
-        bcs     syn
-        and     #$0F
-        pha
-
-        ;; Multiply acc by 10
-        lda     acc
-        sta     tmpw
-        lda     acc+1
-        sta     tmpw+1
-        ldx     #9
-:       jsr     do_add
-        dex
-        bne     :-
-
-        ;; Add in new units
-        pla
-        sta     tmpw
-        lda     #0
-        sta     tmpw+1
-        jsr     do_add
-        clc
-        rts
-
-        ;; Add `tmpw` into `acc`
-do_add: clc
-        lda     acc
-        adc     tmpw
-        sta     acc
-        lda     acc+1
-        adc     tmpw+1
-        sta     acc+1
-        rts
-
-tmpw:   .word   0
-.endproc ; decimal
-
-.proc hex
-        iny                     ; past '$'
-        jsr     GetNextChar
-        beq     syn             ; err if no digits
-:       jsr     digit           ; convert if digit
-        bcs     syn             ; not a digit
-        iny                     ; advance
-        jsr     GetNextChar
-        bne     :-              ; get another
-        clc
-        rts
-
-        ;; A=char, shifts digit into `acc`
-        ;; or return C=1 if invalid
-
-digit:  cmp     #'0'|$80
-        bcc     syn
-        cmp     #'9'|$80+1
-        bcc     :+
-        cmp     #'A'|$80
-        bcc     syn
-        cmp     #'F'|$80+1
-        bcs     syn
-        sbc     #6              ; adjust to A -> 10
-:       and     #$0F
-
-        ;; Multiply `acc` by 16
-        ldx     #3
-:       asl     acc
-        rol     acc+1
-        dex
-        bpl     :-
-
-        ;; Add in new units
-        ora     acc
-        sta     acc
-        clc
-        rts
-
-syn:    sec
-        rts
-.endproc ; hex
-
-.endproc ; GetVal
-.endproc ; ParseArgs
-
-;;; Parsed arguments
-
-arg_start:
-arg_addr:
-        .word   0
-arg_len:
-        .word   0
-arg_end:
-
-;;; ============================================================
-
-.proc SetCreateDate
-        ldx     #3
-:       lda     DATELO,x
-        sta     create_date,x
-        dex
-        bpl     :-
-        rts
-.endproc ; SetCreateDate
 
 ;;; ============================================================
 
@@ -1237,6 +1262,12 @@ check:  lda     gfi_file_type   ; check type
 
         ;; Create the file
 create:
+        ldx     #3              ; set creation date
+:       lda     DATELO,x
+        sta     create_date,x
+        dex
+        bpl     :-
+
         MLI_CALL CREATE, create_params
 
         ;; Write the file
