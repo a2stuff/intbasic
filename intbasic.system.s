@@ -228,7 +228,7 @@ done_copy:
         .org ::reloc_target
         .scope intbasic
         .include "IntegerBASIC_cc65.s"
-        .endscope
+.endscope ; intbasic
 
 ;;; ============================================================
 ;;; Initializer
@@ -284,7 +284,7 @@ have_path:
 
         ;; Run the program
         jmp     intbasic::RUNWARM
-.endproc
+.endproc ; Initialize
 
 ;;; ============================================================
 
@@ -293,14 +293,14 @@ have_path:
         LDXY    #intbasic::BASIC
         STXY    intbasic::HIMEM
         jmp     intbasic::NEW   ; reset PP, PV, stacks
-.endproc
+.endproc ; ColdStart
 
 ;;; ============================================================
 
 .proc Quit
         MLI_CALL QUIT, quit_params
         brk
-.endproc
+.endproc ; Quit
 
 ;;; ============================================================
 
@@ -397,69 +397,7 @@ intbasic_err:
         jsr     SwapZP          ; IntBASIC > ProDOS
         lda     #ERR_INCOMPATIBLE_FILE_FORMAT
         bne     close           ; always
-.endproc
-
-;;; ============================================================
-
-;;; Input: Path to load in `PATHBUF`
-;;; Output: ProDOS error code in A ($00 = success)
-;;; Assert: IntBASIC ZP is swapped in
-
-.proc SaveINTFile
-        ;; Prepare the parameters
-        ldx     #3
-:       lda     DATELO,x
-        sta     create_date,x
-        dex
-        bpl     :-
-
-        LDXY    intbasic::PP
-        STXY    write_data_buffer
-
-        sec
-        lda     intbasic::HIMEM
-        sbc     intbasic::PP
-        sta     write_request_count
-        lda     intbasic::HIMEM+1
-        sbc     intbasic::PP+1
-        sta     write_request_count+1
-
-        jsr     SwapZP          ; IntBASIC > ProDOS
-
-        ;; If it exists, is it INT?
-        MLI_CALL GET_FILE_INFO, gfi_params
-        beq     check
-        cmp     #ERR_FILE_NOT_FOUND
-        beq     create
-        bne     finish          ; other error
-check:  lda     gfi_file_type   ; check type
-        cmp     #FT_INT
-        beq     write           ; okay to overwrite
-        lda     #ERR_INCOMPATIBLE_FILE_FORMAT
-        bne     finish          ; always
-
-        ;; Create the file
-create:
-        MLI_CALL CREATE, create_params
-        beq     write           ; success
-        cmp     #ERR_DUPLICATE_FILENAME
-        bne     finish          ; otherwise fail
-
-        ;; Write the file
-write:
-        MLI_CALL OPEN, open_params
-        bne     finish
-        lda     open_ref_num
-        sta     write_ref_num
-        sta     close_ref_num
-        MLI_CALL WRITE, write_params
-        pha
-        MLI_CALL CLOSE, close_params
-        pla
-
-finish:
-        jmp     SwapZP          ; ProDOS > IntBASIC
-.endproc
+.endproc ; LoadINTFile
 
 ;;; ============================================================
 ;;; ProDOS Parameter Blocks
@@ -530,7 +468,7 @@ create_params:
 create_param_count:     .byte   7       ; in
 create_pathname:        .addr   PATHBUF ; in
 create_access:          .byte   $C3     ; in
-create_file_type:       .byte   $FA     ; in INT
+create_file_type:       .byte   0       ; in, populated at runtime
 create_aux_type:        .word   0       ; in
 create_storage_type:    .byte   0       ; in
 create_date:            .word   0       ; in
@@ -570,7 +508,7 @@ rename_new_pathname:   .addr   PATHBUF ; in
 
 zp_stash:
         .res    ::ZP_SAVE_LEN
-.endproc
+.endproc ; SwapZP
 
 ;;; ============================================================
 
@@ -654,12 +592,16 @@ cmdtable:
         .byte   0
         scrcode "RENAME"
         .byte   0
+        scrcode "BSAVE"
+        .byte   0
         .byte   0               ; sentinel
 
 cmdproclo:
-        .byte   <ByeCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd
+        .byte   <ByeCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd
 cmdprochi:
-        .byte   >ByeCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd
+        .byte   >ByeCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd
+
+.endproc ; CommandHook
 
 ;;; ============================================================
 ;;; Commands should return with:
@@ -677,17 +619,33 @@ ByeCmd := Quit
         jsr     GetPathname
         beq     syn
 
-        jsr     SaveINTFile
-        bne     err
-        clc
-        rts
+        ;; Set date, file type, aux type, data address and length
+        jsr     SetCreateDate
 
-err:    jmp     ShowError
+        lda     #FT_INT
+        sta     create_file_type
+
+        lda     #0
+        sta     create_aux_type
+        sta     create_aux_type+1
+
+        LDXY    intbasic::PP
+        STXY    write_data_buffer
+
+        sec
+        lda     intbasic::HIMEM
+        sbc     intbasic::PP
+        sta     write_request_count
+        lda     intbasic::HIMEM+1
+        sbc     intbasic::PP+1
+        sta     write_request_count+1
+
+        jmp     WriteFileCommon
 
         ;; Syntax error
 syn:    sec
         rts
-.endproc
+.endproc ; SaveCmd
 
 ;;; ============================================================
 ;;; "LOAD pathname"
@@ -713,7 +671,7 @@ err:
         ;; Syntax error
 syn:    sec
         rts
-.endproc
+.endproc ; LoadCmd
 
 ;;; ============================================================
 ;;; "RUN" or "RUN pathname"
@@ -731,7 +689,7 @@ syn:    sec
         jsr     LoadINTFile
         bne     LoadCmd::err
         jmp     intbasic::RUNWARM
-.endproc
+.endproc ; RunCmd
 
 ;;; ============================================================
 ;;; "PREFIX" or "PREFIX pathname"
@@ -761,12 +719,8 @@ set:
         jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL SET_PREFIX, prefix_params
         jsr     SwapZP          ; ProDOS > IntBASIC
-        bne     err
-        clc
-        rts
-
-err:    jmp     ShowError
-.endproc
+err:    jmp     FinishCommand
+.endproc ; PrefixCmd
 
 ;;; ============================================================
 ;;; "CAT" or "CAT path"
@@ -911,7 +865,7 @@ err:
         cpx     #16
         bne     :-
         rts
-.endproc
+.endproc ; print_entry_name
 
 .proc print_entry_type
         ldx     #0
@@ -954,7 +908,7 @@ types:
         .byte   FT_SYS
         scrcode "SYS"
         .byte   0               ; sentinel
-.endproc
+.endproc ; print_entry_type
 
 file_count:
         .word   0
@@ -963,7 +917,7 @@ entries_per_block:
 entries_this_block:
         .byte   0
 
-.endproc
+.endproc ; CatCmd
 
 ;;; ============================================================
 ;;; "DELETE pathname"
@@ -975,14 +929,12 @@ entries_this_block:
         jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL DESTROY, destroy_params
         jsr     SwapZP          ; ProDOS > IntBASIC
-        bne     ShowError
-        clc
-        rts
+        jmp     FinishCommand
 
         ;; Syntax error
 syn:    sec
         rts
-.endproc
+.endproc ; DeleteCmd
 
 ;;; ============================================================
 ;;; "RENAME pathname,pathname2"
@@ -990,7 +942,7 @@ syn:    sec
 .proc RenameCmd
         jsr     GetPathname
         beq     syn
-        lda     intbasic::IN,y
+        jsr     GetNextChar
         cmp     #','|$80
         bne     syn
 
@@ -1010,14 +962,39 @@ syn:    sec
         jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL RENAME, rename_params
         jsr     SwapZP          ; ProDOS > IntBASIC
-        bne     ShowError
-        clc
-        rts
+        jmp     FinishCommand
 
         ;; Syntax error
 syn:    sec
         rts
-.endproc
+.endproc ; RenameCmd
+
+;;; ============================================================
+;;; "BSAVE pathname[,A<address>][,L<length>]"
+
+.proc BSaveCmd
+        jsr     GetPathname
+        beq     syn
+        jsr     ParseArgs
+        bcs     syn
+
+        ;; Set date, file type, aux type, data address and length
+        jsr     SetCreateDate
+
+        lda     #FT_BIN
+        sta     create_file_type
+        LDXY    arg_addr
+        STXY    create_aux_type
+        STXY    write_data_buffer
+        LDXY    arg_len
+        STXY    write_request_count
+
+        jmp     WriteFileCommon
+
+        ;; Syntax error
+syn:    sec
+        rts
+.endproc ; BSaveCmd
 
 ;;; ============================================================
 ;;; Populate `PATHBUF` with rest of command line; skips spaces,
@@ -1027,11 +1004,8 @@ syn:    sec
 ;;; Output: `PATHBUF` is length-prefixed path, A=length, w/ Z set
 .proc GetPathname
         ldx     #0
-loop:   lda     intbasic::IN,y
-        cmp     #$8D            ; CR
-        beq     done
-        cmp     #','|$80
-        beq     done
+loop:   jsr     GetNextChar
+        beq     done            ; if CR or ','
         cmp     #$A0            ; space
         beq     skip
         and     #$7F
@@ -1044,6 +1018,253 @@ done:   stx     PATHBUF
         txa
         rts
 .endproc ; GetPathname
+
+;;; ============================================================
+
+;;; Note: Doesn't advance Y
+;;; Output: A = char, Z=1 if CR or ','
+.proc GetNextChar
+        lda     intbasic::IN,y
+        cmp     #','|$80
+        beq     ret
+        cmp     #$8D            ; CR
+ret:    rts
+.endproc ; GetNextChar
+
+;;; ============================================================
+;;; Parse ,A<addr> and ,L<len> args if present
+;;;
+;;; Input: Y = parse position in `intbasic::IN`
+;;; Output: `arg_addr` and `arg_len` populated (or $0000)
+;;;         C=1 on syntax error, C=0 otherwise
+
+.proc ParseArgs
+        ;; Init all args to 0
+        ldx     #(arg_end - arg_start)-1
+        lda     #0
+:       sta     arg_start,x
+        dex
+        bpl     :-
+
+        ;; Parse an arg
+loop:   jsr     GetNextChar
+        bne     syn             ; not CR or ','
+        cmp     #$8D
+        beq     ok              ; CR
+        iny
+        jsr     GetNextChar
+        cmp     #'A'|$80
+        beq     addr
+        cmp     #'L'|$80
+        beq     len
+
+syn:    sec
+        rts
+
+ok:     clc
+        rts
+
+addr:   jsr     GetVal
+        bcs     syn
+        ldx     #arg_addr - arg_start
+        bpl     apply           ; always
+
+len:    jsr     GetVal
+        bcs     syn
+        ldx     #arg_len - arg_start
+        ;; bpl apply            ; always
+
+        ;; Move acc into appropriate arg word
+apply:  lda     acc
+        sta     arg_start,x
+        lda     acc+1
+        sta     arg_start+1,x
+        jmp     loop
+
+;;; --------------------------------------------------
+
+acc:    .word   0               ; accumulator
+
+;;; --------------------------------------------------
+
+;;; Parse decimal or hex word, populate `acc`
+.proc GetVal
+        lda     #0
+        sta     acc
+        sta     acc+1
+        iny
+        lda     intbasic::IN,y
+        cmp     #'$'|$80
+        beq     hex
+
+
+.proc decimal
+        jsr     GetNextChar
+        beq     syn             ; err if no digits
+:       jsr     digit           ; convert if digit
+        bcs     syn             ; not a digit
+        iny                     ; advance
+        jsr     GetNextChar
+        bne     :-              ; get another
+        clc
+        rts
+
+        ;; A=char, shifts digit into `acc`
+        ;; or return C=1 if invalid
+
+digit:  cmp     #'0'|$80
+        bcc     syn
+        cmp     #'9'|$80+1
+        bcs     syn
+        and     #$0F
+        pha
+
+        ;; Multiply acc by 10
+        lda     acc
+        sta     tmpw
+        lda     acc+1
+        sta     tmpw+1
+        ldx     #9
+:       jsr     do_add
+        dex
+        bne     :-
+
+        ;; Add in new units
+        pla
+        sta     tmpw
+        lda     #0
+        sta     tmpw+1
+        jsr     do_add
+        clc
+        rts
+
+        ;; Add `tmpw` into `acc`
+do_add: clc
+        lda     acc
+        adc     tmpw
+        sta     acc
+        lda     acc+1
+        adc     tmpw+1
+        sta     acc+1
+        rts
+
+tmpw:   .word   0
+.endproc ; decimal
+
+.proc hex
+        iny                     ; past '$'
+        jsr     GetNextChar
+        beq     syn             ; err if no digits
+:       jsr     digit           ; convert if digit
+        bcs     syn             ; not a digit
+        iny                     ; advance
+        jsr     GetNextChar
+        bne     :-              ; get another
+        clc
+        rts
+
+        ;; A=char, shifts digit into `acc`
+        ;; or return C=1 if invalid
+
+digit:  cmp     #'0'|$80
+        bcc     syn
+        cmp     #'9'|$80+1
+        bcc     :+
+        cmp     #'A'|$80
+        bcc     syn
+        cmp     #'F'|$80+1
+        bcs     syn
+        sbc     #6              ; adjust to A -> 10
+:       and     #$0F
+
+        ;; Multiply `acc` by 16
+        ldx     #3
+:       asl     acc
+        rol     acc+1
+        dex
+        bpl     :-
+
+        ;; Add in new units
+        ora     acc
+        sta     acc
+        clc
+        rts
+
+syn:    sec
+        rts
+.endproc ; hex
+
+.endproc ; GetVal
+.endproc ; ParseArgs
+
+;;; Parsed arguments
+
+arg_start:
+arg_addr:
+        .word   0
+arg_len:
+        .word   0
+arg_end:
+
+;;; ============================================================
+
+.proc SetCreateDate
+        ldx     #3
+:       lda     DATELO,x
+        sta     create_date,x
+        dex
+        bpl     :-
+        rts
+.endproc ; SetCreateDate
+
+;;; ============================================================
+
+.proc WriteFileCommon
+        jsr     SwapZP          ; IntBASIC > ProDOS
+
+        ;; If it exists, is it the desired type?
+        MLI_CALL GET_FILE_INFO, gfi_params
+        beq     check           ; exists, check type
+        cmp     #ERR_FILE_NOT_FOUND
+        beq     create          ; doesn't exist, create it
+        bne     finish          ; other error
+
+check:  lda     gfi_file_type   ; check type
+        cmp     create_file_type
+        beq     write           ; okay to overwrite
+        lda     #ERR_INCOMPATIBLE_FILE_FORMAT
+        bne     finish          ; always
+
+        ;; Create the file
+create:
+        MLI_CALL CREATE, create_params
+
+        ;; Write the file
+write:
+        MLI_CALL OPEN, open_params
+        bne     finish
+        lda     open_ref_num
+        sta     write_ref_num
+        sta     close_ref_num
+        MLI_CALL WRITE, write_params
+        pha
+        MLI_CALL CLOSE, close_params
+        pla
+
+finish:
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        .assert * = FinishCommand, error, "fall through"
+.endproc ; WriteFileCommon
+
+;;; ============================================================
+;;; Jump to at the end of a command; if Z=0 ShowError, else
+;;; returns with C=0
+
+.proc FinishCommand
+        bne     ShowError
+        clc
+        rts
+.endproc ; FinishCommand
 
 ;;; ============================================================
 ;;; Show ProDOS error message / number
@@ -1066,8 +1287,6 @@ message:
         scrcode "*** PRODOS ERR $"
         .byte   0
 .endproc ; ShowError
-
-.endproc ; CommandHook
 
 ;;; ============================================================
 
