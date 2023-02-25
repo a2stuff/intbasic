@@ -182,12 +182,27 @@ done_banner:
 
         ldx     path
         stx     PATHBUF
-        beq     done_copy
+        beq     done_path
+
+        ;; Non-empty path - copy it
 :       lda     path,x
         sta     PATHBUF,x
         dex
         bpl     :-
-done_copy:
+
+        ;; Unless Open- or Solid-Apple is down, hook END/ERRMESS to QUIT
+        lda     BUTN0
+        ora     BUTN1
+        bmi     done_path
+
+        lda     #OPC_JMP_abs
+        LDXY    #reloc__QuitCmd
+        sta     reloc + (intbasic__WARM      - reloc_target)
+        STXY    reloc + (intbasic__WARM+1    - reloc_target)
+        sta     reloc + (intbasic__ERRMESS   - reloc_target)
+        STXY    reloc + (intbasic__ERRMESS+1 - reloc_target)
+
+done_path:
 
 ;;; --------------------------------------------------
 ;;; Configure system bitmap
@@ -217,7 +232,7 @@ done_copy:
         ldy     #0
         jsr     MOVE
 
-        jmp     Initialize
+        jmp     reloc__Initialize
 
 ;;; ============================================================
 ;;; Integer BASIC Implementation
@@ -237,15 +252,6 @@ done_copy:
 ;;; Load program (if given) and invoke Integer BASIC
 
 .proc Initialize
-
-        ;; Make LOAD/SAVE just QUIT to ProDOS
-        lda     #OPC_JMP_abs
-        LDXY    #QuitCmd
-        sta     intbasic::LOAD+0
-        STXY    intbasic::LOAD+1
-        sta     intbasic::SAVE+0
-        STXY    intbasic::SAVE+1
-
         ;; Hook the command parser
         LDXY    #CommandHook
         STXY    intbasic::GETCMD+3
@@ -269,20 +275,6 @@ have_path:
         beq     :+
         jmp     QuitCmd         ; fail - just QUIT back to ProDOS
 :
-        ;; Hold Open- or Solid-Apple to allow returning to prompt
-        lda     BUTN0
-        ora     BUTN1
-        bmi     :+
-
-        ;; When END or ERRMESS invoked, just QUIT
-        lda     #OPC_JMP_abs
-        LDXY    #QuitCmd
-        sta     intbasic::WARM
-        STXY    intbasic::WARM+1
-        sta     intbasic::ERRMESS
-        STXY    intbasic::ERRMESS+1       ; patches JSR PRINTERR
-:
-
         ;; Run the program
         jmp     intbasic::RUNWARM
 .endproc ; Initialize
@@ -1371,4 +1363,7 @@ message:
 .endproc ; reloc
         sizeof_reloc = .sizeof(reloc)
         .assert * <= IO_BUFFER, error, "collision"
-        Initialize := reloc::Initialize
+        reloc__Initialize := reloc::Initialize
+        reloc__QuitCmd := reloc::QuitCmd
+        intbasic__WARM := reloc::intbasic::WARM
+        intbasic__ERRMESS := reloc::intbasic::ERRMESS
