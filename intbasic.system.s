@@ -233,6 +233,14 @@ done_path:
         ldy     #0
         jsr     MOVE
 
+        ;; Hook the command parser
+        LDXY    #reloc__CommandHook
+        STXY    intbasic__GETCMD+3
+
+        ;; Hook the output routine
+        jsr     reloc__HookCSW
+
+        ;; Start it up
         jmp     reloc__Initialize
 
 ;;; ============================================================
@@ -253,16 +261,6 @@ done_path:
 ;;; Load program (if given) and invoke Integer BASIC
 
 .proc Initialize
-        ;; Hook the command parser
-        LDXY    #CommandHook
-        STXY    intbasic::GETCMD+3
-
-        ;; Hook the output routine
-        LDXY    CSWL
-        STXY    CSWHook__orig
-        LDXY    #CSWHook
-        STXY    CSWL
-
         ;; Cold start - initialize Integer BASIC
         jsr     SwapZP          ; ProDOS > IntBASIC
         jsr     ColdStart
@@ -518,6 +516,7 @@ zp_stash:
         path_opt = %00000010    ; path is optional (not an error if empty)
         path2    = %00000100    ; parse second path (for RENAME)
         args     = %00001000    ; parse args (A, L)
+        slotnum  = %00010000    ; slot number (for PR#)
 .endenum
 
 ;;; Command Hook - replaces MON_NXTCHAR call in GETCMD to
@@ -620,6 +619,12 @@ dispatch:
         jsr     ParseArgs
         bcs     syn
 :
+        lda     parse_flags
+        and     #ParseFlags::slotnum
+        beq     :+
+        jsr     ParseSlotNum
+        bcs     syn
+:
         ;; Anything remaining is an error
 :       lda     intbasic::IN,y
         cmp     #$8D
@@ -642,7 +647,7 @@ dispatch:
 syn:    lda     #ExecResult::syntax_error
         rts
 
-NUM_CMDS = 11
+NUM_CMDS = 12
 
 cmdtable:
         scrcode "BYE"
@@ -667,12 +672,14 @@ cmdtable:
         .byte   0
         scrcode "BLOAD"
         .byte   0
+        scrcode "PR#"
+        .byte   0
         .byte   0               ; sentinel
 
 cmdproclo:
-        .byte   <QuitCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd
+        .byte   <QuitCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<PRCmd
 cmdprochi:
-        .byte   >QuitCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd
+        .byte   >QuitCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>PRCmd
         .assert * - cmdproclo = NUM_CMDS * 2, error, "table size"
 
 cmdparse:
@@ -687,6 +694,7 @@ cmdparse:
         .byte   ParseFlags::path | ParseFlags::path2    ; RENAME
         .byte   ParseFlags::path | ParseFlags::args     ; BSAVE
         .byte   ParseFlags::path | ParseFlags::args     ; BLOAD
+        .byte   ParseFlags::slotnum                     ; PR#
         .assert * - cmdparse = NUM_CMDS, error, "table size"
 
 parse_flags:
@@ -750,6 +758,25 @@ done:   stx     PATHBUF
         iny
         lda     #0              ; set Z=1 after INY
 ret:    rts
+.endproc
+
+;;; ============================================================
+
+;;; Output: C=1 on syntax error, C=0 and `slotnum` populated otherwise
+.proc ParseSlotNum
+        jsr     GetNextChar
+        cmp     #'0'|$80
+        bcc     syn
+        cmp     #'7'|$80+1
+        bcs     syn
+        and     #$0F
+        sta     slotnum
+        iny
+        clc
+        rts
+
+syn:    sec
+        rts
 .endproc
 
 ;;; ============================================================
@@ -924,6 +951,9 @@ arg_addr:
 arg_len:
         .word   0
 arg_end:
+
+slotnum:
+        .byte   0
 
 ;;; ============================================================
 ;;; Commands should return with:
@@ -1311,6 +1341,42 @@ finish:
 
 ;;; ============================================================
 
+.proc PRCmd
+        lda     slotnum
+        jsr     intbasic::MON_OUTPORT
+        .assert * = HookCSW, error, "fall through"
+.endproc
+
+;;; ============================================================
+
+;;; Redirect CSW to `CSWHook`
+;;; Output: CSW will be hooked (if not already), C=0
+;;; Preserves: A,X,Y
+.proc HookCSW
+        stx     save_x
+        sty     save_y
+
+        LDXY    CSWL
+        cpx     #<CSWHook
+        bne     hook
+        cpy     #>CSWHook
+        beq     skip            ; already hooked
+hook:
+        STXY    CSWHook__orig
+        LDXY    #CSWHook
+        STXY    CSWL
+
+skip:
+        save_x := *+1
+        ldx     #$00            ; self-modified
+        save_y := *+1
+        ldy     #$00            ; self-modified
+        clc
+        rts
+.endproc
+
+;;; ============================================================
+
 .proc WriteFileCommon
         jsr     SwapZP          ; IntBASIC > ProDOS
 
@@ -1445,7 +1511,9 @@ chain:
         saved_x := *+1
         ldx     #$00            ; self-modified
         orig := *+1
-        jmp     $FFFF           ; self-modified
+        jsr     $FFFF           ; self-modified
+
+        jmp     HookCSW         ; rehook necessary e.g. after PR#n
 
 outbuf_index:
         .byte   0
@@ -1467,5 +1535,8 @@ output_state:
         .assert * <= IO_BUFFER, error, "collision"
         reloc__Initialize := reloc::Initialize
         reloc__QuitCmd := reloc::QuitCmd
+        reloc__CommandHook := reloc::CommandHook
+        reloc__HookCSW := reloc::HookCSW
+        intbasic__GETCMD := reloc::intbasic::GETCMD
         intbasic__WARM := reloc::intbasic::WARM
         intbasic__ERRMESS := reloc::intbasic::ERRMESS
