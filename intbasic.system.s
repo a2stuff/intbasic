@@ -654,7 +654,7 @@ dispatch:
 syn:    lda     #ExecResult::syntax_error
         rts
 
-NUM_CMDS = 12
+NUM_CMDS = 13
 
 cmdtable:
         scrcode "BYE"
@@ -679,14 +679,16 @@ cmdtable:
         .byte   0
         scrcode "BLOAD"
         .byte   0
+        scrcode "BRUN"
+        .byte   0
         scrcode "PR#"
         .byte   0
         .byte   0               ; sentinel
 
 cmdproclo:
-        .byte   <QuitCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<PRCmd
+        .byte   <QuitCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd
 cmdprochi:
-        .byte   >QuitCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>PRCmd
+        .byte   >QuitCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd
         .assert * - cmdproclo = NUM_CMDS * 2, error, "table size"
 
 cmdparse:
@@ -701,6 +703,7 @@ cmdparse:
         .byte   ParseFlags::path | ParseFlags::path2    ; RENAME
         .byte   ParseFlags::path | ParseFlags::address | ParseFlags::length ; BSAVE
         .byte   ParseFlags::path | ParseFlags::address  ; BLOAD
+        .byte   ParseFlags::path | ParseFlags::address  ; BRUN
         .byte   ParseFlags::slotnum                     ; PR#
         .assert * - cmdparse = NUM_CMDS, error, "table size"
 
@@ -1344,6 +1347,12 @@ syn:    sec
 ;;; "BLOAD pathname[,A<address>]"
 
 .proc BLoadCmd
+        jsr     LoadBINFile
+        jmp     FinishCommand
+
+.endproc ; BLoadCmd
+
+.proc LoadBINFile
         jsr     SwapZP          ; IntBASIC > ProDOS
 
         ;; Check type, bail if not BIN
@@ -1376,9 +1385,21 @@ syn:    sec
         pla
 
 finish:
-        jsr     SwapZP          ; ProDOS > IntBASIC
-        jmp     FinishCommand
-.endproc ; BLoadCmd
+        jmp     SwapZP          ; ProDOS > IntBASIC
+.endproc ; LoadBINFile
+
+;;; ============================================================
+;;; "BRUN pathname[,A<address>]"
+
+.proc BRunCmd
+        jsr     LoadBINFile
+        bne     :+
+        jsr     run
+        lda     #0
+:       jmp     FinishCommand
+
+run:    jmp     (read_data_buffer)
+.endproc ; BRunCmd
 
 ;;; ============================================================
 ;;; "PR#<slot>"
