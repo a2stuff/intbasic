@@ -1552,7 +1552,7 @@ capture:
         rts
 :
         ldx     #$80            ; back to state 1
-        sta     output_state
+        stx     output_state
 
         ;; TODO: Do we need a special state to avoid recursion?
         jsr     ExecBuffer
