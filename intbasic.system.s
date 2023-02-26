@@ -523,8 +523,10 @@ zp_stash:
 ;;; allow extra commands to be added.
 .proc CommandHook
         jsr     intbasic::MON_NXTCHAR
-        sta     save_a                ; last char pressed
-        stx     save_x                ; position in input buffer
+        sta     save_a          ; last char pressed
+        stx     save_x          ; position in input buffer
+
+        jsr     HookCSW         ; needed after IN#3
 
         jsr     ExecBuffer
         ldx     #0
@@ -1340,6 +1342,7 @@ finish:
 .endproc ; BLoadCmd
 
 ;;; ============================================================
+;;; "PR#<slot>"
 
 .proc PRCmd
         lda     slotnum
@@ -1513,7 +1516,7 @@ chain:
         orig := *+1
         jsr     $FFFF           ; self-modified
 
-        jmp     HookCSW         ; rehook necessary e.g. after PR#n
+        jmp     HookCSW         ; rehook necessary e.g. after PR#3
 
 outbuf_index:
         .byte   0
