@@ -23,7 +23,7 @@ This is a version of Steve Wozniak's Integer BASIC for the Apple II, with a wrap
    * Pressing <kbd>Control</kbd>+<kbd>C</kbd> will usually exit a program as well.
    * Optionally, hold down <kbd>Open Apple</kbd> or <kbd>Solid Apple</kbd> when starting to allow exiting the program to remain at the `>` prompt.
 
-> ⚠️ Note that Integer BASIC programs do not have the ability to execute commands from BASIC with `PRINT "<control-D>..."`. Programs that need to load resources will not work.
+> ⚠️ Note that while Integer BASIC programs do have the ability to execute commands from BASIC with `PRINT "<control-D>..."`, only the above commands are supported. Commands for operating on text files (`OPEN`, `READ`, etc) are not supported.
 
 ## Integer BASIC
 

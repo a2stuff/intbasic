@@ -29,7 +29,7 @@
 ;;;          |           |
 ;;;          |           |
 ;;;          |           |
-;;;  $A000   +-----------+  HIMEM
+;;;  $9E00   +-----------+  HIMEM
 ;;;          | Program   |
 ;;;          |     |     |
 ;;;          |     v     |
@@ -56,6 +56,7 @@
 ;;; ============================================================
 
 ;;; Monitor Equates
+CSWL    =       $36
 A1L     =       $3c     ;general purpose
 A1H     =       $3d     ;general purpose
 A2L     =       $3e     ;general purpose
@@ -238,7 +239,7 @@ done_path:
 ;;; Integer BASIC Implementation
 ;;; ============================================================
 
-        reloc_target := $A000
+        reloc_target := $9E00
         .proc reloc
         .org ::reloc_target
         .scope intbasic
@@ -255,6 +256,12 @@ done_path:
         ;; Hook the command parser
         LDXY    #CommandHook
         STXY    intbasic::GETCMD+3
+
+        ;; Hook the output routine
+        LDXY    CSWL
+        STXY    CSWHook__orig
+        LDXY    #CSWHook
+        STXY    CSWL
 
         ;; Cold start - initialize Integer BASIC
         jsr     SwapZP          ; ProDOS > IntBASIC
@@ -500,6 +507,12 @@ zp_stash:
 ;;; Command Hook
 ;;; ============================================================
 
+.enum ExecResult
+        executed
+        no_match
+        syntax_error
+.endenum
+
 .enum ParseFlags
         path     = %00000001    ; parse path
         path_opt = %00000010    ; path is optional (not an error if empty)
@@ -514,6 +527,33 @@ zp_stash:
         sta     save_a                ; last char pressed
         stx     save_x                ; position in input buffer
 
+        jsr     ExecBuffer
+        ldx     #0
+
+        cmp     #ExecResult::no_match
+        bne     :+
+        save_a := *+1
+        lda     #$00            ; self-modified
+        save_x := *+1
+        ldx     #$00            ; self-modified
+        rts
+:
+        cmp     #ExecResult::syntax_error
+        bne     :+
+        lda     #'!'|$80
+        sta     intbasic::IN,x
+        inx
+        lda     #$8D
+        sta     intbasic::IN,x
+        rts
+:
+        ;;      #ExecResult::executed
+        lda     #$8D
+        sta     intbasic::IN,x
+        rts
+.endproc ; CommandHook
+
+.proc ExecBuffer
         ldx     #0
         stx     cmdnum
         dex                     ; -1; immediately incremented to 0
@@ -536,10 +576,7 @@ next:   inx
         bne     loop
 
         ;; No match
-        save_a := *+1
-        lda     #$00            ; self-modified
-        save_x := *+1
-        ldx     #$00            ; self-modified
+        lda     #ExecResult::no_match
         rts
 
         ;; Dispatch to matching command
@@ -597,20 +634,12 @@ dispatch:
 
         @disp := *+1
         jsr     $FFFF           ; self-modified
+        bcs     syn
 
-        ;; If it returns with C=0, pass empty command line back
-        ldx     #0
-        bcs     :+
-        lda     #$8D
-        sta     intbasic::IN,x
+        lda     #ExecResult::executed
         rts
-:
-        ;; Force a syntax error
-syn:    lda     #'!'|$80
-        sta     intbasic::IN,x
-        inx
-        lda     #$8D
-        sta     intbasic::IN,x
+
+syn:    lda     #ExecResult::syntax_error
         rts
 
 NUM_CMDS = 11
@@ -883,7 +912,7 @@ tmpw:   .word   0
 acc:    .word   0
 
 .endproc ; ParseArgs
-.endproc ; CommandHook
+.endproc ; ExecBuffer
 
 ;;; ============================================================
 ;;; Parsed Arguments
@@ -952,9 +981,8 @@ arg_end:
         jmp     intbasic::WARM
 
 err:
-        jsr     ShowError
         jsr     ColdStart
-        jmp     intbasic::WARM
+        jmp     ShowError
 .endproc ; LoadCmd
 
 ;;; ============================================================
@@ -1349,14 +1377,88 @@ finish:
         bne     :-              ; always
 :       pla
         jsr     PRBYTE
-        clc
-        rts
+        jsr     intbasic::MON_CROUT
+        jmp     intbasic::ERRMESS+3
 
 message:
         .byte   $87             ; BELL
         scrcode "*** PRODOS ERR $"
         .byte   0
 .endproc ; ShowError
+
+;;; ============================================================
+
+.proc CSWHook
+        stx     saved_x
+
+        bit     output_state
+        bpl     look_for_cr     ; $00
+        bvs     capture         ; $C0
+
+        ;; State 1: ($80) Previous was CR; if Ctrl-D goto state 2, else state 3
+        cmp     #$84            ; Ctrl-D
+        bne     :+
+
+        ldx     #0              ; yes, start capture
+        stx     outbuf_index
+        ldx     #$C0
+        stx     output_state
+        ldx     saved_x
+        rts
+:
+        ldx     #$00            ; no, wait for another CR
+        beq     set_state_and_cout ; always
+
+        ;; State 2: ($C0) Capturing; on CR execute & reset, goto state
+capture:
+        ldx     outbuf_index
+        sta     intbasic::IN,x
+        inc     outbuf_index
+        cmp     #$8D            ; CR
+        beq     :+
+        ldx     saved_x
+        rts
+:
+        ldx     #$80            ; back to state 1
+        sta     output_state
+
+        ;; TODO: Do we need a special state to avoid recursion?
+        jsr     ExecBuffer
+        cmp     #ExecResult::executed
+        bne     :+
+        lda     #$8D
+        ldx     saved_x
+        rts
+:
+        ldy     #<intbasic::ErrMsg02 ;"SYNTAX"
+        jmp     intbasic::ERRMESS
+
+        ;; State 3: ($00) Pass through; on CR, enter state 1
+look_for_cr:
+        cmp     #$8D            ; CR
+        bne     chain           ; no
+        ldx     #$80
+set_state_and_cout:
+        stx     output_state
+
+chain:
+        saved_x := *+1
+        ldx     #$00            ; self-modified
+        orig := *+1
+        jmp     $FFFF           ; self-modified
+
+outbuf_index:
+        .byte   0
+
+;;; bit 7 & 6 = 1 1 => saw ctrl-D, now capturing
+;;; bit 7 & 6 = 1 0 => saw CR, looking for ctrl-D
+;;; bit 7 & 6 = 0 0 => normal output, look for CR
+output_state:
+        .byte   0
+
+.endproc ; CSWHook
+        CSWHook__orig := CSWHook::orig
+
 
 ;;; ============================================================
 
