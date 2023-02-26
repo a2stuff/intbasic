@@ -636,15 +636,11 @@ dispatch:
         jsr     ParseSlotNum
         bcs     syn
 :
-        ;; Anything remaining is an error
-:       lda     intbasic::IN,y
+        ;; Anything remaining (except spaces) is an error
+        jsr     SkipSpaces
         cmp     #$8D
-        beq     :+
-        cmp     #' '|$80
         bne     syn
-        iny
-        bne     :-              ; always
-:
+
         ;; ..............................
         ;; Actual dispatch
 
@@ -713,18 +709,20 @@ parse_flags:
 
 ;;; ============================================================
 ;;; Note: Doesn't advance Y
-;;; Output: A = char, Z=1 if CR or ','
+;;; Output: A = char, Z=1 if CR or ',' or ' '
 
 .proc GetNextChar
         lda     intbasic::IN,y
         cmp     #','|$80
+        beq     ret
+        cmp     #' '|$80
         beq     ret
         cmp     #$8D            ; CR
 ret:    rts
 .endproc ; GetNextChar
 
 ;;; ============================================================
-;;; Parse path from command line into `PATHBUF`; skips spaces,
+;;; Parse path from command line into `PATHBUF`; skips leading spaces,
 ;;; stops on newline or comma.
 
 ;;; Input: Y = end of command in `intbasic::IN`
@@ -743,15 +741,14 @@ ret:    rts
 
 start:
         ;; Get next path
+        jsr     SkipSpaces
         ldx     #0
 loop:   jsr     GetNextChar
         beq     done            ; if CR or ','
-        cmp     #$A0            ; space
-        beq     skip
         and     #$7F
         sta     PATHBUF+1,x
         inx
-skip:   iny
+        iny
         bne     loop            ; always
 
 done:   stx     PATHBUF
@@ -760,10 +757,24 @@ done:   stx     PATHBUF
 .endproc ; GetPathname
 
 ;;; ============================================================
-;;; Tries to consume a comma from the input
+;;; Skip over spaces in input buffer
+;;; Input: Y = current position
+;;; Output: Y = new position, A = char at new position
+
+.proc SkipSpaces
+:       lda     intbasic::IN,y
+        iny
+        cmp     #' '|$80
+        beq     :-
+        dey
+        rts
+.endproc
+
+;;; ============================================================
+;;; Tries to consume a comma from the input; skips leading spaces
 ;;; Output: Z=1 if comma seen, Z=0 otherwise
 .proc ParseComma
-        jsr     GetNextChar
+        jsr     SkipSpaces
         cmp     #','|$80
         bne     ret
         iny
@@ -809,7 +820,7 @@ syn:    sec
         ;; Parse an arg
 loop:   jsr     ParseComma
         bne     ok              ; nope - we're done
-        jsr     GetNextChar
+        jsr     SkipSpaces
         cmp     #'A'|$80
         beq     addr
         cmp     #'L'|$80
