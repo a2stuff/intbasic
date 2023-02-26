@@ -19,16 +19,14 @@
 ;;;  $C000   +-----------+         +-----------+
 ;;;          | ProDOS GP |
 ;;;  $BF00   +-----------+
-;;;          | IO_BUFFER |
-;;;  $BB00   +-----------+
-;;;          | Init &    |
 ;;;          | Command   |
 ;;;          | Processor |
-;;;  $B425   +-----------+
+;;;  $B625   +-----------+  Initialize
 ;;;          | IntBASIC  |
 ;;;          |           |
 ;;;          |           |
-;;;          |           |
+;;;  $A200   +-----------+  BASIC_START
+;;;          | IO_BUFFER |
 ;;;  $9E00   +-----------+  HIMEM
 ;;;          | Program   |
 ;;;          |     |     |
@@ -141,7 +139,10 @@ ZP_SAVE_LEN     =  $15
 ;;; System Program
 ;;; ============================================================
 
-        IO_BUFFER := $BB00
+        IO_BUFFER := $9E00
+        OUR_HIMEM := IO_BUFFER
+        BASIC_START := $A200
+
         PATHBUF := $280
         PATH2   := $2C0
 
@@ -198,10 +199,10 @@ done_banner:
 
         lda     #OPC_JMP_abs
         LDXY    #reloc__QuitCmd
-        sta     reloc + (intbasic__WARM      - reloc_target)
-        STXY    reloc + (intbasic__WARM+1    - reloc_target)
-        sta     reloc + (intbasic__ERRMESS   - reloc_target)
-        STXY    reloc + (intbasic__ERRMESS+1 - reloc_target)
+        sta     reloc + (intbasic__WARM      - BASIC_START)
+        STXY    reloc + (intbasic__WARM+1    - BASIC_START)
+        sta     reloc + (intbasic__ERRMESS   - BASIC_START)
+        STXY    reloc + (intbasic__ERRMESS+1 - BASIC_START)
 
 done_path:
 
@@ -217,19 +218,19 @@ done_path:
         lda     #%11001111      ; ZP, Stack, Text Page 1
         sta     BITMAP
 
+        lda     #%00111111
+        sta     BITMAP+$A*2     ; Pages $A2-$A7
         lda     #%11111111
-        sta     BITMAP+$A*2     ; Pages $A0-$A7
         sta     BITMAP+$A*2+1   ; Pages $A8-$AF
         sta     BITMAP+$B*2     ; Pages $B0-$B7
-        lda     #%11100001
-        sta     BITMAP+$B*2+1   ; Pages $B8-$BA, ProDOS global page ($BF)
+        sta     BITMAP+$B*2+1   ; Pages $B8-$BF (ProDOS global page)
 
 ;;; --------------------------------------------------
 ;;; Relocate INTBASIC and our stub up to target
 
         COPY16  #reloc, A1L
         COPY16  #reloc+sizeof_reloc-1, A2L
-        COPY16  #reloc_target, A4L
+        COPY16  #BASIC_START, A4L
         ldy     #0
         jsr     MOVE
 
@@ -243,20 +244,27 @@ done_path:
         ;; Start it up
         jmp     reloc__Initialize
 
+        .out .sprintf("MEM: Bootstrap is $%04X bytes", * - $2000)
+
 ;;; ============================================================
 ;;; Integer BASIC Implementation
 ;;; ============================================================
 
-        reloc_target := $9E00
         .proc reloc
-        .org ::reloc_target
-        .scope intbasic
+        .org ::BASIC_START
+        .assert * .mod $200 = 0, error, "must be even-page aligned"
+
+        .out .sprintf("MEM: $%04X BASIC_START", *)
+
+.scope intbasic
         .include "IntegerBASIC_cc65.s"
 .endscope ; intbasic
 
 ;;; ============================================================
 ;;; Initializer
 ;;; ============================================================
+
+        .out .sprintf("MEM: $%04X Command Handler", *)
 
 ;;; Load program (if given) and invoke Integer BASIC
 
@@ -288,7 +296,7 @@ have_path:
 
 .proc ColdStart
         jsr     intbasic::COLD
-        LDXY    #intbasic::BASIC
+        LDXY    #OUR_HIMEM
         STXY    intbasic::HIMEM
         jmp     intbasic::NEW   ; reset PP, PV, stacks
 .endproc ; ColdStart
@@ -760,7 +768,7 @@ done:   stx     PATHBUF
         iny
         lda     #0              ; set Z=1 after INY
 ret:    rts
-.endproc
+.endproc ; ParseComma
 
 ;;; ============================================================
 
@@ -779,7 +787,7 @@ ret:    rts
 
 syn:    sec
         rts
-.endproc
+.endproc ; ParseSlotNum
 
 ;;; ============================================================
 ;;; Parse ,A<addr> and ,L<len> args if present
@@ -1348,7 +1356,7 @@ finish:
         lda     slotnum
         jsr     intbasic::MON_OUTPORT
         .assert * = HookCSW, error, "fall through"
-.endproc
+.endproc ; PRCmd
 
 ;;; ============================================================
 
@@ -1376,7 +1384,7 @@ skip:
         ldy     #$00            ; self-modified
         clc
         rts
-.endproc
+.endproc ; HookCSW
 
 ;;; ============================================================
 
@@ -1535,7 +1543,8 @@ output_state:
 
 .endproc ; reloc
         sizeof_reloc = .sizeof(reloc)
-        .assert * <= IO_BUFFER, error, "collision"
+
+        ;; Exports
         reloc__Initialize := reloc::Initialize
         reloc__QuitCmd := reloc::QuitCmd
         reloc__CommandHook := reloc::CommandHook
@@ -1543,3 +1552,7 @@ output_state:
         intbasic__GETCMD := reloc::intbasic::GETCMD
         intbasic__WARM := reloc::intbasic::WARM
         intbasic__ERRMESS := reloc::intbasic::ERRMESS
+
+        .assert * <= MLI, error, "collision"
+        .out .sprintf("MEM: $%04X end of Command Handler", *)
+        .out .sprintf("MEM: $%04X bytes remaining before $BF00", $BF00 - *)
