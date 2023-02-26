@@ -1420,9 +1420,13 @@ skip:
 
 check:  lda     gfi_file_type   ; check type
         cmp     create_file_type
-        beq     write           ; okay to overwrite
+        beq     delete          ; okay to overwrite
         lda     #ERR_INCOMPATIBLE_FILE_FORMAT
         bne     finish          ; always
+
+        ;; Delete so size/addr/etc updated
+delete: MLI_CALL DESTROY, destroy_params
+        bne     finish
 
         ;; Create the file
 create:
@@ -1435,7 +1439,6 @@ create:
         MLI_CALL CREATE, create_params
 
         ;; Write the file
-write:
         MLI_CALL OPEN, open_params
         bne     finish
         lda     open_ref_num
