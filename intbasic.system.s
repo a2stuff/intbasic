@@ -289,7 +289,7 @@ have_path:
         jmp     QuitCmd         ; fail - just QUIT back to ProDOS
 :
         ;; Run the program
-        jmp     intbasic::RUNWARM
+        jmp     intbasic::RUN
 .endproc ; Initialize
 
 ;;; ============================================================
@@ -1065,7 +1065,7 @@ err:
         jsr     ColdStart
         jsr     LoadINTFile
         bne     LoadCmd::err
-run:    jmp     intbasic::RUNWARM
+run:    jmp     intbasic::RUN
 .endproc ; RunCmd
 
 ;;; ============================================================
