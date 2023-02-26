@@ -523,8 +523,9 @@ zp_stash:
         path     = %00000001    ; parse path
         path_opt = %00000010    ; path is optional (not an error if empty)
         path2    = %00000100    ; parse second path (for RENAME)
-        args     = %00001000    ; parse args (A, L)
-        slotnum  = %00010000    ; slot number (for PR#)
+        slotnum  = %00001000    ; slot number (for PR#)
+        address  = %00010000    ; parse An
+        length   = %00100000    ; parse Ln
 .endenum
 
 ;;; Command Hook - replaces MON_NXTCHAR call in GETCMD to
@@ -624,7 +625,7 @@ dispatch:
         beq     syn
 :
         lda     parse_flags
-        and     #ParseFlags::args
+        and     #ParseFlags::address|ParseFlags::length
         beq     :+
         jsr     ParseArgs
         bcs     syn
@@ -702,8 +703,8 @@ cmdparse:
         .byte   ParseFlags::path | ParseFlags::path_opt ; CAT
         .byte   ParseFlags::path                        ; DELETE
         .byte   ParseFlags::path | ParseFlags::path2    ; RENAME
-        .byte   ParseFlags::path | ParseFlags::args     ; BSAVE
-        .byte   ParseFlags::path | ParseFlags::args     ; BLOAD
+        .byte   ParseFlags::path | ParseFlags::address | ParseFlags::length ; BSAVE
+        .byte   ParseFlags::path | ParseFlags::address  ; BLOAD
         .byte   ParseFlags::slotnum                     ; PR#
         .assert * - cmdparse = NUM_CMDS, error, "table size"
 
@@ -800,6 +801,7 @@ syn:    sec
         ;; Init all args to 0
         ldx     #(arg_end - arg_start)-1
         lda     #0
+        sta     seen_args
 :       sta     arg_start,x
         dex
         bpl     :-
@@ -821,16 +823,24 @@ ok:     clc
 
 addr:   jsr     GetVal
         bcs     syn
+        lda     #ParseFlags::address
         ldx     #arg_addr - arg_start
         bpl     apply           ; always
 
 len:    jsr     GetVal
         bcs     syn
+        lda     #ParseFlags::length
         ldx     #arg_len - arg_start
-        ;; bpl apply            ; always
+        .assert * = apply, error, "fall through"
 
+apply:
+        ;; Validate we want this argument, note it was seen
+        and     parse_flags
+        beq     syn
+        ora     seen_args
+        sta     seen_args
         ;; Move acc into appropriate arg word
-apply:  lda     acc
+        lda     acc
         sta     arg_start,x
         lda     acc+1
         sta     arg_start+1,x
@@ -963,6 +973,8 @@ arg_len:
 arg_end:
 
 slotnum:
+        .byte   0
+seen_args:
         .byte   0
 
 ;;; ============================================================
@@ -1290,9 +1302,18 @@ entries_this_block:
 .endproc ; RenameCmd
 
 ;;; ============================================================
-;;; "BSAVE pathname[,A<address>][,L<length>]"
+;;; "BSAVE pathname,A<address>,L<length>"
 
 .proc BSaveCmd
+        ;; Validate args
+        lda     seen_args
+        and     #ParseFlags::address | ParseFlags::length
+        cmp     #ParseFlags::address | ParseFlags::length
+        bne     syn
+        lda     arg_len
+        ora     arg_len+1
+        beq     syn
+
         ;; Set file type, aux type, data address and length
         lda     #FT_BIN
         sta     create_file_type
@@ -1303,10 +1324,13 @@ entries_this_block:
         STXY    write_request_count
 
         jmp     WriteFileCommon
+
+syn:    sec
+        rts
 .endproc ; BSaveCmd
 
 ;;; ============================================================
-;;; "BLOAD pathname[,A<address>][,L<length>]"
+;;; "BLOAD pathname[,A<address>]"
 
 .proc BLoadCmd
         jsr     SwapZP          ; IntBASIC > ProDOS
@@ -1321,18 +1345,14 @@ entries_this_block:
         bne     finish          ; always
 :
         LDXY    gfi_aux_type    ; default load address
-        lda     arg_addr
-        ora     arg_addr+1
+        lda     seen_args
+        and     #ParseFlags::address
         beq     :+
         LDXY    arg_addr        ; arg override
 :       STXY    read_data_buffer
 
         LDXY    #$FFFF          ; read everything
-        lda     arg_len
-        ora     arg_len+1
-        beq     :+
-        LDXY    arg_len         ; arg override
-:       STXY    read_request_count
+        STXY    read_request_count
 
         MLI_CALL OPEN, open_params
         bne     finish
