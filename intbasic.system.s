@@ -1221,7 +1221,12 @@ next_entry:
         jsr     intbasic::PRDEC
         jsr     intbasic::MON_CROUT
 
+        ;; Next file, unless the use cancelled
+        lda     KBD
+        cmp     #$83            ; Ctrl+C
+        beq     :+
         jmp     next_file
+:       sta     KBDSTRB
 
 close:  MLI_CALL CLOSE, close_params
         jsr     SwapZP          ; ProDOS > IntBASIC
