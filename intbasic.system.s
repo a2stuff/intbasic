@@ -526,6 +526,7 @@ zp_stash:
         slotnum  = %00001000    ; slot number (for PR#)
         address  = %00010000    ; parse An
         length   = %00100000    ; parse Ln
+        ignore   = %10000000    ; ignore all (for MON/NOMON)
 .endenum
 
 ;;; Command Hook - replaces MON_NXTCHAR call in GETCMD to
@@ -595,9 +596,9 @@ dispatch:
         ldx     #$00            ; self-modified
 
         lda     cmdproclo,x
-        sta     @disp
+        sta     disp
         lda     cmdprochi,x
-        sta     @disp+1
+        sta     disp+1
         lda     cmdparse,x
         sta     parse_flags
 
@@ -608,6 +609,9 @@ dispatch:
         sta     PATHBUF
 
         lda     parse_flags
+        .assert ParseFlags::ignore = $80, error, "enum mismatch"
+        bmi     done_parse
+
         and     #ParseFlags::path
         beq     :+
         jsr     GetPathname
@@ -640,11 +644,12 @@ dispatch:
         jsr     SkipSpaces
         cmp     #$8D
         bne     syn
+done_parse:
 
         ;; ..............................
         ;; Actual dispatch
 
-        @disp := *+1
+        disp := *+1
         jsr     $FFFF           ; self-modified
         bcs     syn
 
@@ -654,7 +659,7 @@ dispatch:
 syn:    lda     #ExecResult::syntax_error
         rts
 
-NUM_CMDS = 13
+NUM_CMDS = 15
 
 cmdtable:
         scrcode "BYE"
@@ -683,12 +688,16 @@ cmdtable:
         .byte   0
         scrcode "PR#"
         .byte   0
+        scrcode "MON"
+        .byte   0
+        scrcode "NOMON"
+        .byte   0
         .byte   0               ; sentinel
 
 cmdproclo:
-        .byte   <QuitCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd
+        .byte   <QuitCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd,<MonCmd,<MonCmd
 cmdprochi:
-        .byte   >QuitCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd
+        .byte   >QuitCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd,>MonCmd,>MonCmd
         .assert * - cmdproclo = NUM_CMDS * 2, error, "table size"
 
 cmdparse:
@@ -705,6 +714,8 @@ cmdparse:
         .byte   ParseFlags::path | ParseFlags::address  ; BLOAD
         .byte   ParseFlags::path | ParseFlags::address  ; BRUN
         .byte   ParseFlags::slotnum                     ; PR#
+        .byte   ParseFlags::ignore                      ; MON
+        .byte   ParseFlags::ignore                      ; NOMON
         .assert * - cmdparse = NUM_CMDS, error, "table size"
 
 parse_flags:
@@ -1400,6 +1411,14 @@ finish:
 
 run:    jmp     (read_data_buffer)
 .endproc ; BRunCmd
+
+;;; ============================================================
+;;; "MON" and "NOMON"
+
+.proc MonCmd
+        clc
+        rts
+.endproc ; MonCmd
 
 ;;; ============================================================
 ;;; "PR#<slot>"

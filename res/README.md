@@ -10,3 +10,4 @@ Files in this directory are included in disk images.
    * Paste at the `>` prompt
    * `SAVE TESTS`
    * `cadius EXTRACTFILE out/intbasic_system.2mg /INTBASIC/TESTS res`
+   * `mv res/TESTS#FA0000 res/TESTS.INT`
