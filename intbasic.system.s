@@ -587,7 +587,7 @@ next:   inx
         bne     loop
 
         ;; No match
-        lda     #ExecResult::no_match
+pass:   lda     #ExecResult::no_match
         rts
 
         ;; Dispatch to matching command
@@ -640,6 +640,11 @@ dispatch:
         jsr     ParseSlotNum
         bcs     syn
 :
+        ;; If command is RUN, and no path was given, yield to IntBASIC
+        lda     cmdnum
+        ora     PATHBUF
+        beq     pass
+
         ;; Anything remaining (except spaces) is an error
         jsr     SkipSpaces
         cmp     #$8D
@@ -662,13 +667,13 @@ syn:    lda     #ExecResult::syntax_error
 NUM_CMDS = 15
 
 cmdtable:
+        scrcode "RUN"           ; must be 0 for special handling
+        .byte   0
         scrcode "BYE"
         .byte   0
         scrcode "SAVE"
         .byte   0
         scrcode "LOAD"
-        .byte   0
-        scrcode "RUN"
         .byte   0
         scrcode "PREFIX"
         .byte   0
@@ -695,16 +700,16 @@ cmdtable:
         .byte   0               ; sentinel
 
 cmdproclo:
-        .byte   <QuitCmd,<SaveCmd,<LoadCmd,<RunCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd,<MonCmd,<MonCmd
+        .byte   <RunCmd,<QuitCmd,<SaveCmd,<LoadCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd,<MonCmd,<MonCmd
 cmdprochi:
-        .byte   >QuitCmd,>SaveCmd,>LoadCmd,>RunCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd,>MonCmd,>MonCmd
+        .byte   >RunCmd,>QuitCmd,>SaveCmd,>LoadCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd,>MonCmd,>MonCmd
         .assert * - cmdproclo = NUM_CMDS * 2, error, "table size"
 
 cmdparse:
+        .byte   ParseFlags::path | ParseFlags::path_opt ; RUN
         .byte   0                                       ; BYE
         .byte   ParseFlags::path                        ; SAVE
         .byte   ParseFlags::path                        ; LOAD
-        .byte   ParseFlags::path | ParseFlags::path_opt ; RUN
         .byte   ParseFlags::path | ParseFlags::path_opt ; PREFIX
         .byte   ParseFlags::path | ParseFlags::path_opt ; CATALOG
         .byte   ParseFlags::path | ParseFlags::path_opt ; CAT
@@ -757,6 +762,11 @@ start:
         ;; Get next path
         jsr     SkipSpaces
         ldx     #0
+        jsr     GetNextChar
+        cmp     #'/'|$80        ; must start with /
+        beq     loop            ; or alpha
+        cmp     #'A'|$80
+        bcc     done
 loop:   jsr     GetNextChar
         beq     done            ; if CR or ','
         and     #$7F
@@ -1063,20 +1073,17 @@ err:
 .endproc ; LoadCmd
 
 ;;; ============================================================
-;;; "RUN" or "RUN pathname"
+;;; "RUN pathname"
 
 .proc RunCmd
         ;; Pop out of command hook - no going back now
         pla
         pla
 
-        lda     PATHBUF
-        beq     run             ; no path, just RUN
-
         jsr     ColdStart
         jsr     LoadINTFile
         bne     LoadCmd::err
-run:    jmp     intbasic::RUN
+        jmp     intbasic::RUN
 .endproc ; RunCmd
 
 ;;; ============================================================
