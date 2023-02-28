@@ -9,5 +9,6 @@ Files in this directory are included in disk images.
    * mount `out/intbasic_system.2mg` & boot it
    * Paste at the `>` prompt
    * `SAVE TESTS`
+   * Quit Virtual ][
    * `cadius EXTRACTFILE out/intbasic_system.2mg /INTBASIC/TESTS res`
    * `mv res/TESTS#FA0000 res/TESTS.INT`

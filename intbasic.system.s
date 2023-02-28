@@ -628,12 +628,9 @@ dispatch:
         jsr     GetPathname
         beq     syn
 :
-        lda     parse_flags
-        and     #ParseFlags::address|ParseFlags::length
-        beq     :+
         jsr     ParseArgs
         bcs     syn
-:
+
         lda     parse_flags
         and     #ParseFlags::slotnum
         beq     :+
@@ -826,7 +823,7 @@ syn:    sec
 .endproc ; ParseSlotNum
 
 ;;; ============================================================
-;;; Parse ,A<addr> and ,L<len> args if present
+;;; Parse ,A<addr> and ,L<len> args if present (and ignore ,V<vol>)
 ;;;
 ;;; Input: Y = parse position in `intbasic::IN`
 ;;; Output: `arg_addr` and `arg_len` populated (or $0000)
@@ -849,12 +846,18 @@ loop:   jsr     ParseComma
         beq     addr
         cmp     #'L'|$80
         beq     len
+        cmp     #'V'|$80
+        beq     vol
 
 syn:    sec
         rts
 
 ok:     clc
         rts
+
+vol:    jsr     GetVal
+        bcs     syn
+        bcc     loop            ; always
 
 addr:   jsr     GetVal
         bcs     syn
