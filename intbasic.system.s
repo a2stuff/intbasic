@@ -513,12 +513,6 @@ zp_stash:
 ;;; Command Hook
 ;;; ============================================================
 
-.enum ExecResult
-        executed
-        no_match
-        syntax_error
-.endenum
-
 .enum ParseFlags
         path     = %00000001    ; parse path
         path_opt = %00000010    ; path is optional (not an error if empty)
@@ -539,26 +533,26 @@ zp_stash:
         jsr     HookCSW         ; needed after IN#3
 
         jsr     ExecBuffer
+        bcc     :+
 
-        cmp     #ExecResult::no_match
-        bne     :+
+        ;; Pass buffer on to IntBASIC to parse
         save_a := *+1
         lda     #$00            ; self-modified
         save_x := *+1
         ldx     #$00            ; self-modified
         rts
 :
-        cmp     #ExecResult::syntax_error
-        bne     :+
-        ldy     #<intbasic::ErrMsg02 ;"SYNTAX"
-        jmp     intbasic::ERRMESS
-:
-        ;;      #ExecResult::executed
+        ;; Pass an empty buffer on to IntBASIC
         ldx     #0
         lda     #$8D            ; CR
         sta     intbasic::IN,x
         rts
 .endproc ; CommandHook
+
+;;; ============================================================
+;;; Executes the command in the input buffer ($200)
+;;; Output: C=0 if valid, C=1 if not (e.g. let IntBASIC take it)
+;;; Note: On syntax error, calls `intbasic::ERRMESS` (resets stack, etc)
 
 .proc ExecBuffer
         ldx     #0              ; X = offset in cmdtable
@@ -586,7 +580,7 @@ next:   lda     cmdtable,x
         bne     loop
 
         ;; No match
-pass:   lda     #ExecResult::no_match
+pass:   sec
         rts
 
         ;; Dispatch to matching command
@@ -647,12 +641,10 @@ done_parse:
         disp := *+1
         jsr     $FFFF           ; self-modified
         bcs     syn
+        rts                     ; C=0 indicates we consumed it
 
-        lda     #ExecResult::executed
-        rts
-
-syn:    lda     #ExecResult::syntax_error
-        rts
+syn:    ldy     #<intbasic::ErrMsg02 ;"SYNTAX"
+        jmp     intbasic::ERRMESS
 
 NUM_CMDS = 15
 
@@ -1595,13 +1587,13 @@ capture:
 
         ;; TODO: Do we need a special state to avoid recursion?
         jsr     ExecBuffer
-        cmp     #ExecResult::executed
-        bne     :+
+        bcs     syn
+
         lda     #$8D
         ldx     saved_x
         rts
-:
-        ldy     #<intbasic::ErrMsg02 ;"SYNTAX"
+
+syn:    ldy     #<intbasic::ErrMsg02 ;"SYNTAX"
         jmp     intbasic::ERRMESS
 
         ;; State 3: ($00) Pass through; on CR, enter state 1
