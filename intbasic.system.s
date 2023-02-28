@@ -630,7 +630,7 @@ dispatch:
         jsr     ParsePath
         beq     syn
 :
-        jsr     ParseArgs
+        jsr     ParseParams
         bcs     syn
 
         lda     parse_flags
@@ -820,18 +820,18 @@ syn:    sec
 .endproc ; ParseSlotNum
 
 ;;; ============================================================
-;;; Parse ,A<addr> and ,L<len> args if present (and ignore ,V<vol>)
+;;; Parse ,A<addr> and ,L<len> params if present (and ignore ,V<vol>)
 ;;;
 ;;; Input: Y = parse position in `intbasic::IN`
-;;; Output: `arg_addr` and `arg_len` populated (or $0000)
+;;; Output: `param_addr` and `param_len` populated (or $0000)
 ;;;         C=1 on syntax error, C=0 otherwise
 
-.proc ParseArgs
-        ;; Init all args to 0
-        ldx     #(arg_end - arg_start)-1
+.proc ParseParams
+        ;; Init all params to 0
+        ldx     #(param_end - param_start)-1
         lda     #0
-        sta     seen_args
-:       sta     arg_start,x
+        sta     seen_params
+:       sta     param_start,x
         dex
         bpl     :-
 
@@ -839,12 +839,14 @@ syn:    sec
 loop:   jsr     ParseComma
         bne     ok              ; nope - we're done
         jsr     SkipSpaces
-        cmp     #'A'|$80
-        beq     addr
-        cmp     #'L'|$80
-        beq     len
-        cmp     #'V'|$80
-        beq     vol
+
+NUM_PARAMS = 3
+
+        ldx     #NUM_PARAMS-1
+:       cmp     param_table,x
+        beq     get
+        dex
+        bpl     :-
 
 syn:    sec
         rts
@@ -852,33 +854,38 @@ syn:    sec
 ok:     clc
         rts
 
-vol:    jsr     GetVal
-        bcs     syn
-        bcc     loop            ; always
+param_table:                    ; parameter name
+        .byte   'V'|$80, 'A'|$80, 'L'|$80
+        .assert * - param_table = NUM_PARAMS, error, "table size"
+flag_table:                     ; flag in `parse_flags` (0=ignored)
+        .byte   0, ParseFlags::address, ParseFlags::length
+        .assert * - flag_table = NUM_PARAMS, error, "table size"
+offset_table:                   ; offset from `param_start` to store value
+        .byte   0, param_addr - param_start, param_len - param_start
+        .assert * - offset_table = NUM_PARAMS, error, "table size"
 
-addr:   jsr     GetVal
+get:    txa                     ; A = table offset
+        pha
+        jsr     GetVal
+        pla
         bcs     syn
-        lda     #ParseFlags::address
-        ldx     #arg_addr - arg_start
-        bpl     apply           ; always
+        tax                     ; X = table offset
 
-len:    jsr     GetVal
-        bcs     syn
-        lda     #ParseFlags::length
-        ldx     #arg_len - arg_start
-        .assert * = apply, error, "fall through"
-
-apply:
         ;; Validate we want this argument, note it was seen
+        lda     flag_table,x
+        beq     loop            ; ignored (V)
         and     parse_flags
-        beq     syn
-        ora     seen_args
-        sta     seen_args
+        beq     syn             ; not wanted
+        ora     seen_params
+        sta     seen_params
+
         ;; Move acc into appropriate arg word
+        lda     offset_table,x
+        tax
         lda     acc
-        sta     arg_start,x
+        sta     param_start,x
         lda     acc+1
-        sta     arg_start+1,x
+        sta     param_start+1,x
         jmp     loop
 
 ;;; Parse decimal or hex word, populate `acc`
@@ -993,23 +1000,23 @@ tmpw:   .word   0
 
 acc:    .word   0
 
-.endproc ; ParseArgs
+.endproc ; ParseParams
 .endproc ; ExecBuffer
 
 ;;; ============================================================
 ;;; Parsed Arguments
 ;;; ============================================================
 
-arg_start:
-arg_addr:
+param_start:
+param_addr:
         .word   0
-arg_len:
+param_len:
         .word   0
-arg_end:
+param_end:
 
 slotnum:
         .byte   0
-seen_args:
+seen_params:
         .byte   0
 
 ;;; ============================================================
@@ -1342,22 +1349,22 @@ entries_this_block:
 ;;; "BSAVE pathname,A<address>,L<length>"
 
 .proc BSaveCmd
-        ;; Validate args
-        lda     seen_args
+        ;; Validate params
+        lda     seen_params
         and     #ParseFlags::address | ParseFlags::length
         cmp     #ParseFlags::address | ParseFlags::length
         bne     syn
-        lda     arg_len
-        ora     arg_len+1
+        lda     param_len
+        ora     param_len+1
         beq     syn
 
         ;; Set file type, aux type, data address and length
         lda     #FT_BIN
         sta     create_file_type
-        LDXY    arg_addr
+        LDXY    param_addr
         STXY    create_aux_type
         STXY    write_data_buffer
-        LDXY    arg_len
+        LDXY    param_len
         STXY    write_request_count
 
         jmp     WriteFileCommon
@@ -1388,10 +1395,10 @@ syn:    sec
         bne     finish          ; always
 :
         LDXY    gfi_aux_type    ; default load address
-        lda     seen_args
+        lda     seen_params
         and     #ParseFlags::address
         beq     :+
-        LDXY    arg_addr        ; arg override
+        LDXY    param_addr      ; arg override
 :       STXY    read_data_buffer
 
         LDXY    #$FFFF          ; read everything
