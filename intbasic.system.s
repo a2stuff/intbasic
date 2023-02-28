@@ -614,7 +614,7 @@ dispatch:
 
         and     #ParseFlags::path
         beq     :+
-        jsr     GetPathname
+        jsr     ParsePath
         bne     :+
         lda     parse_flags     ; no path - was it optional?
         and     #ParseFlags::path_opt
@@ -625,7 +625,7 @@ dispatch:
         beq     :+
         jsr     ParseComma
         bne     syn
-        jsr     GetPathname
+        jsr     ParsePath
         beq     syn
 :
         jsr     ParseArgs
@@ -745,7 +745,7 @@ ret:    rts
 ;;; Output: `PATHBUF` is length-prefixed path, A=length, w/ Z set
 ;;;         Previous `PATHBUF` copied to `PATH2`
 ;;; Assert: `PATHBUF` is valid
-.proc GetPathname
+.proc ParsePath
         ;; Copy first path to PATH2
         ldx     PATHBUF
         stx     PATH2
@@ -775,7 +775,7 @@ loop:   jsr     GetNextChar
 done:   stx     PATHBUF
         txa
         rts
-.endproc ; GetPathname
+.endproc ; ParsePath
 
 ;;; ============================================================
 ;;; Skip over spaces in input buffer
@@ -789,7 +789,7 @@ done:   stx     PATHBUF
         beq     :-
         dey
         rts
-.endproc
+.endproc ; SkipSpaces
 
 ;;; ============================================================
 ;;; Tries to consume a comma from the input; skips leading spaces
