@@ -68,6 +68,10 @@ NEW
 343 PRINT D$;"BSAVE BIN,V254,A8192,L1"
 344 A=1 : GOSUB 10000
 
+350 TEST$ = "Leading spaves"
+351 PRINT D$;" BSAVE BIN,A8192,L1"
+352 A=1 : GOSUB 10000
+
 400 REM ******************************
 401 SEC$ = "Commands"
 402 REM ******************************

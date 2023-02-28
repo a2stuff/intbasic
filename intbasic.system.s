@@ -565,25 +565,27 @@ zp_stash:
 .endproc ; CommandHook
 
 .proc ExecBuffer
-        ldx     #0
+        ldx     #0              ; X = offset in cmdtable
         stx     cmdnum
-        dex                     ; -1; immediately incremented to 0
 
         ;; Check command
-loop:   ldy     #$FF            ; -1, immediately incremented to 0
-:       iny
-        inx
-        lda     cmdtable,x
+loop:   ldy     #0              ; Y = offset in buffer
+        jsr     SkipSpaces
+:       lda     cmdtable,x
         beq     dispatch
         cmp     intbasic::IN,y
-        beq     :-              ; next character
+        bne     next
+        inx
+        iny
+        bne     :-              ; always
 
         ;; Next command
-next:   inx
-        lda     cmdtable,x
-        bne     next
+:       inx
+next:   lda     cmdtable,x
+        bne     :-
         inc     cmdnum
-        lda     cmdtable+1,x
+        inx
+        lda     cmdtable,x
         bne     loop
 
         ;; No match
@@ -780,7 +782,7 @@ done:   stx     PATHBUF
 ;;; ============================================================
 ;;; Skip over spaces in input buffer
 ;;; Input: Y = current position
-;;; Output: Y = new position, A = char at new position
+;;; Output: Y = new position, A = char at new position, X unchanged
 
 .proc SkipSpaces
 :       lda     intbasic::IN,y
