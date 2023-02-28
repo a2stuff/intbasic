@@ -539,7 +539,6 @@ zp_stash:
         jsr     HookCSW         ; needed after IN#3
 
         jsr     ExecBuffer
-        ldx     #0
 
         cmp     #ExecResult::no_match
         bne     :+
@@ -551,15 +550,12 @@ zp_stash:
 :
         cmp     #ExecResult::syntax_error
         bne     :+
-        lda     #'!'|$80
-        sta     intbasic::IN,x
-        inx
-        lda     #$8D
-        sta     intbasic::IN,x
-        rts
+        ldy     #<intbasic::ErrMsg02 ;"SYNTAX"
+        jmp     intbasic::ERRMESS
 :
         ;;      #ExecResult::executed
-        lda     #$8D
+        ldx     #0
+        lda     #$8D            ; CR
         sta     intbasic::IN,x
         rts
 .endproc ; CommandHook
