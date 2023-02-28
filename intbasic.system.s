@@ -721,6 +721,15 @@ parse_flags:
         .byte   0
 
 ;;; ============================================================
+;;; Advance Y, and get next character.
+;;; Output: A = char, Z=1 if CR or ',' or ' '
+
+.proc AdvanceAndGetNextChar
+        iny
+        .assert * = GetNextChar, error, "fall through"
+.endproc
+
+;;; ============================================================
 ;;; Note: Doesn't advance Y
 ;;; Output: A = char, Z=1 if CR or ',' or ' '
 
@@ -893,8 +902,7 @@ get:    txa                     ; A = table offset
         lda     #0
         sta     acc
         sta     acc+1
-        iny
-        lda     intbasic::IN,y
+        jsr     AdvanceAndGetNextChar
         cmp     #'$'|$80
         beq     hex
 
@@ -904,8 +912,7 @@ get:    txa                     ; A = table offset
         beq     syn             ; err if no digits
 :       jsr     digit           ; convert if digit
         bcs     syn             ; not a digit
-        iny                     ; advance
-        jsr     GetNextChar
+        jsr     AdvanceAndGetNextChar
         bne     :-              ; get another
         clc
         rts
@@ -952,13 +959,11 @@ do_add: clc
 .endproc ; decimal
 
 .proc hex
-        iny                     ; past '$'
-        jsr     GetNextChar
+        jsr     AdvanceAndGetNextChar ; past '$'
         beq     syn             ; err if no digits
 :       jsr     digit           ; convert if digit
         bcs     syn             ; not a digit
-        iny                     ; advance
-        jsr     GetNextChar
+        jsr     AdvanceAndGetNextChar
         bne     :-              ; get another
         clc
         rts
