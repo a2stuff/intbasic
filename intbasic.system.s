@@ -567,6 +567,7 @@ zp_stash:
 .proc ExecBuffer
         ldx     #0              ; X = offset in cmdtable
         stx     cmdnum
+        stx     PATHBUF         ; initialize to zero on each parse
 
         ;; Check command
 loop:   ldy     #0              ; Y = offset in buffer
@@ -606,9 +607,6 @@ dispatch:
 
         ;; ..............................
         ;; Parse arguments
-
-        lda     #0
-        sta     PATHBUF
 
         lda     parse_flags
         .assert ParseFlags::ignore = $80, error, "enum mismatch"
