@@ -616,7 +616,9 @@ dispatch:
         beq     :+
         jsr     ParsePath
         bne     :+
-        lda     parse_flags     ; no path - was it optional?
+        ora     cmdnum          ; if RUN (idx 0), yield to IntBASIC
+        beq     pass
+        lda     parse_flags     ; was it optional?
         and     #ParseFlags::path_opt
         beq     syn             ; required, so error
 :
@@ -637,11 +639,6 @@ dispatch:
         jsr     ParseSlotNum
         bcs     syn
 :
-        ;; If command is RUN, and no path was given, yield to IntBASIC
-        lda     cmdnum
-        ora     PATHBUF
-        beq     pass
-
         ;; Anything remaining (except spaces) is an error
         jsr     SkipSpaces
         cmp     #$8D
