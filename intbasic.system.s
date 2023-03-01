@@ -270,7 +270,6 @@ done_path:
 
 .proc Initialize
         ;; Cold start - initialize Integer BASIC
-        jsr     SwapZP          ; ProDOS > IntBASIC
         jsr     ColdStart
 
         ;; Do we have a path?
@@ -278,6 +277,7 @@ done_path:
         bne     have_path
 
         ;; No, just show with prompt
+        jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     intbasic::WARM
 
         ;; --------------------------------------------------
@@ -289,26 +289,27 @@ have_path:
         jmp     QuitCmd         ; fail - just QUIT back to ProDOS
 :
         ;; Run the program
+        jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     intbasic::RUN
 .endproc ; Initialize
 
 ;;; ============================================================
 
 .proc ColdStart
+        jsr     SwapZP          ; ProDOS > IntBASIC
         jsr     intbasic::COLD
         LDXY    #OUR_HIMEM
         STXY    intbasic::HIMEM
-        jmp     intbasic::NEW   ; reset PP, PV, stacks
+        jsr     intbasic::NEW   ; reset PP, PV, stacks
+        jmp     SwapZP          ; IntBASIC > ProDOS
 .endproc ; ColdStart
 
 ;;; ============================================================
 
 ;;; Input: Path to load in `PATHBUF`
 ;;; Output: ProDOS error code in A ($00 = success)
-;;; Assert: IntBASIC ZP swapped in
+;;; Assert: ProDOS ZP swapped in
 .proc LoadINTFile
-        jsr     SwapZP          ; IntBASIC > ProDOS
-
         ;; Check type, bail if not INT
         MLI_CALL GET_FILE_INFO, gfi_params
         bne     finish
@@ -389,7 +390,7 @@ close:
         pla
 
 finish:
-        jmp     SwapZP          ; ProDOS > IntBASIC
+        rts
 
         ;; Failure with IntBASIC ZP swapped in - restore ProDOS and flag error
 intbasic_err:
@@ -525,6 +526,7 @@ zp_stash:
 
 ;;; Command Hook - replaces MON_NXTCHAR call in GETCMD to
 ;;; allow extra commands to be added.
+;;; Assert: Called with IntBASIC ZP swapped in
 .proc CommandHook
         jsr     intbasic::MON_NXTCHAR
         sta     save_a          ; last char pressed
@@ -553,6 +555,7 @@ zp_stash:
 ;;; Executes the command in the input buffer ($200)
 ;;; Output: C=0 if valid, C=1 if not (e.g. let IntBASIC take it)
 ;;; Note: On syntax error, calls `intbasic::ERRMESS` (resets stack, etc)
+;;; Assert: Called with IntBASIC ZP swapped in
 
 .proc ExecBuffer
         ldx     #0              ; X = offset in cmdtable
@@ -638,8 +641,10 @@ done_parse:
         ;; ..............................
         ;; Actual dispatch
 
+        jsr     SwapZP          ; IntBASIC > ProDOS
         disp := *+1
         jsr     $FFFF           ; self-modified
+        jsr     SwapZP          ; ProDOS > IntBASIC
         bcs     syn
         rts                     ; C=0 indicates we consumed it
 
@@ -1016,14 +1021,13 @@ seen_params:
 ;;; Commands should return with:
 ;;;   C=0 if command consumed (successful or otherwise)
 ;;;   C=1 on syntax error (e.g. no filename given)
-;;; Commands are run with IntBASIC ZP swapped in
+;;; Commands are run with ProDOS ZP swapped in
 ;;; ============================================================
 
 ;;; ============================================================
 ;;; "BYE"
 
 .proc QuitCmd
-        jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL QUIT, quit_params
         brk
 .endproc ; QuitCmd
@@ -1040,6 +1044,8 @@ seen_params:
         sta     create_aux_type
         sta     create_aux_type+1
 
+        jsr     SwapZP          ; IntBASIC > ProDOS
+
         LDXY    intbasic::PP
         STXY    write_data_buffer
 
@@ -1050,6 +1056,8 @@ seen_params:
         lda     intbasic::HIMEM+1
         sbc     intbasic::PP+1
         sta     write_request_count+1
+
+        jsr     SwapZP          ; ProDOS > IntBASIC
 
         jmp     WriteFileCommon
 .endproc ; SaveCmd
@@ -1065,6 +1073,8 @@ seen_params:
         jsr     ColdStart
         jsr     LoadINTFile
         bne     err
+
+        jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     intbasic::WARM
 
 err:
@@ -1083,6 +1093,7 @@ err:
         jsr     ColdStart
         jsr     LoadINTFile
         bne     LoadCmd::err
+        jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     intbasic::RUN
 .endproc ; RunCmd
 
@@ -1094,9 +1105,7 @@ err:
         bne     set
 
         ;; Show current prefix
-        jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL GET_PREFIX, prefix_params
-        jsr     SwapZP          ; ProDOS > IntBASIC
         bne     err
         ldx     #0
 :       cpx     PATHBUF
@@ -1111,9 +1120,7 @@ err:
 
         ;; Set prefix
 set:
-        jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL SET_PREFIX, prefix_params
-        jsr     SwapZP          ; ProDOS > IntBASIC
 err:    jmp     FinishCommand
 .endproc ; PrefixCmd
 
@@ -1121,8 +1128,6 @@ err:    jmp     FinishCommand
 ;;; "CAT" or "CAT path"
 
 .proc CatCmd
-        jsr     SwapZP          ; IntBASIC > ProDOS
-
         lda     PATHBUF
         beq     use_prefix
 
@@ -1236,12 +1241,10 @@ next_entry:
 :       sta     KBDSTRB
 
 close:  MLI_CALL CLOSE, close_params
-        jsr     SwapZP          ; ProDOS > IntBASIC
         clc
         rts
 
 err:
-        jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     ShowError
 
 .proc print_entry_name
@@ -1322,9 +1325,7 @@ entries_this_block:
 ;;; "DELETE pathname"
 
 .proc DeleteCmd
-        jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL DESTROY, destroy_params
-        jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     FinishCommand
 .endproc ; DeleteCmd
 
@@ -1332,9 +1333,7 @@ entries_this_block:
 ;;; "RENAME pathname,pathname2"
 
 .proc RenameCmd
-        jsr     SwapZP          ; IntBASIC > ProDOS
         MLI_CALL RENAME, rename_params
-        jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     FinishCommand
 .endproc ; RenameCmd
 
@@ -1376,8 +1375,6 @@ syn:    sec
 .endproc ; BLoadCmd
 
 .proc LoadBINFile
-        jsr     SwapZP          ; IntBASIC > ProDOS
-
         ;; Check type, bail if not BIN
         MLI_CALL GET_FILE_INFO, gfi_params
         bne     finish
@@ -1408,7 +1405,7 @@ syn:    sec
         pla
 
 finish:
-        jmp     SwapZP          ; ProDOS > IntBASIC
+        rts
 .endproc ; LoadBINFile
 
 ;;; ============================================================
@@ -1437,7 +1434,9 @@ run:    jmp     (read_data_buffer)
 
 .proc PRCmd
         lda     slotnum
+        jsr     SwapZP          ; ProDOS > IntBASIC
         jsr     intbasic::MON_OUTPORT
+        jsr     SwapZP          ; IntBASIC > ProDOS
         .assert * = HookCSW, error, "fall through"
 .endproc ; PRCmd
 
@@ -1472,8 +1471,6 @@ skip:
 ;;; ============================================================
 
 .proc WriteFileCommon
-        jsr     SwapZP          ; IntBASIC > ProDOS
-
         ;; If it exists, is it the desired type?
         MLI_CALL GET_FILE_INFO, gfi_params
         beq     check           ; exists, check type
@@ -1513,7 +1510,6 @@ create:
         pla
 
 finish:
-        jsr     SwapZP          ; ProDOS > IntBASIC
         .assert * = FinishCommand, error, "fall through"
 .endproc ; WriteFileCommon
 
@@ -1541,6 +1537,7 @@ finish:
 :       pla
         jsr     PRBYTE
         jsr     intbasic::MON_CROUT
+        jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     intbasic::ERRMESS+3
 
 message:
@@ -1550,6 +1547,8 @@ message:
 .endproc ; ShowError
 
 ;;; ============================================================
+
+;;; Assert: Called with IntBASIC ZP swapped in
 
 .proc CSWHook
         stx     saved_x
