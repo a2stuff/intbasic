@@ -16,6 +16,7 @@ This is a version of Steve Wozniak's Integer BASIC for the Apple II, with a wrap
    * `BSAVE path,A<address>,L<length>"` saves a `BIN` file.
    * `BLOAD path[,A<address>]"` loads a `BIN` file.
    * `BRUN path[,A<address>]"` runs a `BIN` file.
+   * `LOCK path` and `UNLOCK path` lock/unlock the specified file.
    * `BYE` exits back to ProDOS.
 
 2. When invoked as an "interpreter" for an `INT` file from a program selector (such as [Bitsy Bye](https://prodos8.com/bitsy-bye/) or [Apple II DeskTop](https://a2desktop.com)), the file is loaded and executed.

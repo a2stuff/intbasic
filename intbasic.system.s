@@ -670,7 +670,7 @@ dispatch:
 syn:    ldy     #<intbasic::ErrMsg02 ;"SYNTAX"
         jmp     intbasic::ERRMESS
 
-NUM_CMDS = 15
+NUM_CMDS = 17
 
 cmdtable:
         scrcode "RUN"           ; must be 0 for special handling
@@ -703,14 +703,18 @@ cmdtable:
         .byte   0
         scrcode "NOMON"
         .byte   0
+        scrcode "LOCK"
+        .byte   0
+        scrcode "UNLOCK"
+        .byte   0
         .byte   0               ; sentinel
 
         MonCmd := 0             ; ignored
         NomonCmd := 0
 cmdproclo:
-        .byte   <RunCmd,<QuitCmd,<SaveCmd,<LoadCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd,<MonCmd,<NomonCmd
+        .byte   <RunCmd,<QuitCmd,<SaveCmd,<LoadCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd,<MonCmd,<NomonCmd,<LockCmd,<UnlockCmd
 cmdprochi:
-        .byte   >RunCmd,>QuitCmd,>SaveCmd,>LoadCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd,>MonCmd,>NomonCmd
+        .byte   >RunCmd,>QuitCmd,>SaveCmd,>LoadCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd,>MonCmd,>NomonCmd,>LockCmd,>UnlockCmd
         .assert * - cmdproclo = NUM_CMDS * 2, error, "table size"
 
 cmdparse:
@@ -729,6 +733,8 @@ cmdparse:
         .byte   ParseFlags::slotnum                     ; PR#
         .byte   ParseFlags::ignore                      ; MON
         .byte   ParseFlags::ignore                      ; NOMON
+        .byte   ParseFlags::path                        ; LOCK
+        .byte   ParseFlags::path                        ; UNLOCK
         .assert * - cmdparse = NUM_CMDS, error, "table size"
 
 parse_flags:
@@ -1432,6 +1438,32 @@ finish:
 
 run:    jmp     (rw_data_buffer)
 .endproc ; BRunCmd
+
+;;; ============================================================
+;;; "LOCK path" and "UNLOCK path"
+
+.proc LockCmd
+        jsr     GetFileInfo
+        bne     ret
+
+        lda     gfi_access
+        and     #%00111101      ; clear destroy, rename, write
+store:  sta     gfi_access
+
+        lda     #7              ; param count for SET_FILE_INFO
+        sta     gfi_param_count
+        MLI_CALL SET_FILE_INFO, gfi_params
+ret:    rts
+.endproc ; LockCmd
+
+.proc UnlockCmd
+        jsr     GetFileInfo
+        bne     LockCmd::ret
+
+        lda     gfi_access
+        ora     #%11000010      ; set destroy, rename, write
+        bne     LockCmd::store  ; always
+.endproc ; UnlockCmd
 
 ;;; ============================================================
 ;;; "PR#<slot>"
