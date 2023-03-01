@@ -77,6 +77,7 @@ QUIT            = $65
 CREATE          = $C0
 DESTROY         = $C1
 RENAME          = $C2
+SET_FILE_INFO   = $C3
 GET_FILE_INFO   = $C4
 SET_PREFIX      = $C6
 GET_PREFIX      = $C7
@@ -311,7 +312,7 @@ have_path:
 ;;; Assert: ProDOS ZP swapped in
 .proc LoadINTFile
         ;; Check type, bail if not INT
-        MLI_CALL GET_FILE_INFO, gfi_params
+        jsr     GetFileInfo
         bne     finish
         lda     gfi_file_type
         cmp     #FT_INT
@@ -321,11 +322,11 @@ have_path:
 
         ;; Open the file
 open:
-        MLI_CALL OPEN, open_params
+        jsr     Open
         bne     finish
         lda     open_ref_num
         sta     geteof_ref_num
-        sta     read_ref_num
+        sta     rw_ref_num
         sta     close_ref_num
 
         ;; --------------------------------------------------
@@ -342,7 +343,7 @@ open:
         jsr     SwapZP          ; ProDOS > IntBASIC
         LDXY    geteof_eof
         STXY    intbasic::ACC
-        STXY    read_request_count
+        STXY    rw_request_count
 
         ;; On any error, fail the load
         JmpMEMFULL      := intbasic_err
@@ -378,19 +379,12 @@ open:
         ;; ..................................................
 
         ;; Load address c/o IntBASIC's program pointer
-        COPY16  intbasic::PP, read_data_buffer
+        COPY16  intbasic::PP, rw_data_buffer
         jsr     SwapZP          ; IntBASIC > ProDOS
 
-        MLI_CALL READ, read_params
-        ;; TODO: Verify `read_trans_count`
-
-close:
-        pha
-        MLI_CALL CLOSE, close_params
-        pla
-
-finish:
-        rts
+        jsr     Read
+close:  jsr     Close
+finish: rts
 
         ;; Failure with IntBASIC ZP swapped in - restore ProDOS and flag error
 intbasic_err:
@@ -400,11 +394,38 @@ intbasic_err:
 .endproc ; LoadINTFile
 
 ;;; ============================================================
+;;; Helpers, to save space
+
+.proc GetFileInfo
+        lda     #$A             ; param count for GET_FILE_INFO
+        sta     gfi_param_count
+        MLI_CALL GET_FILE_INFO, gfi_params
+        rts
+.endproc
+
+.proc Open
+        MLI_CALL OPEN, open_params
+        rts
+.endproc
+
+.proc Read
+        MLI_CALL READ, rw_params
+        rts
+.endproc
+
+.proc Close
+        pha
+        MLI_CALL CLOSE, close_params
+        pla
+        rts
+.endproc
+
+;;; ============================================================
 ;;; ProDOS Parameter Blocks
 
-;;; GET_FILE_INFO
+;;; GET_FILE_INFO / SET_FILE_INFO
 gfi_params:
-gfi_param_count:        .byte   $A      ; in
+gfi_param_count:        .byte   0       ; in, populated at runtime
 gfi_pathname:           .addr   PATHBUF ; in
 gfi_access:             .byte   0       ; out
 gfi_file_type:          .byte   0       ; out
@@ -429,21 +450,13 @@ geteof_param_count:     .byte   2 ; in
 geteof_ref_num:         .byte   0 ; in, populated at runtime
 geteof_eof:             .res 3, 0 ; out
 
-;;; READ
-read_params:
-read_param_count:       .byte   4 ; in
-read_ref_num:           .byte   0 ; in, populated at runtime
-read_data_buffer:       .addr   0 ; in, populated at runtime
-read_request_count:     .word   0 ; in, populated at runtime
-read_trans_count:       .word   0 ; out
-
-;;; WRITE
-write_params:
-write_param_count:      .byte   4 ; in
-write_ref_num:          .byte   1 ; in
-write_data_buffer:      .addr   0 ; in
-write_request_count:    .word   0 ; in
-write_trans_count:      .word   0 ; out
+;;; READ/WRITE
+rw_params:
+rw_param_count:         .byte   4 ; in
+rw_ref_num:             .byte   0 ; in, populated at runtime
+rw_data_buffer:         .addr   0 ; in, populated at runtime
+rw_request_count:       .word   0 ; in, populated at runtime
+rw_trans_count:         .word   0 ; out
 
 ;;; CLOSE
 close_params:
@@ -1047,15 +1060,15 @@ seen_params:
         jsr     SwapZP          ; IntBASIC > ProDOS
 
         LDXY    intbasic::PP
-        STXY    write_data_buffer
+        STXY    rw_data_buffer
 
         sec
         lda     intbasic::HIMEM
         sbc     intbasic::PP
-        sta     write_request_count
+        sta     rw_request_count
         lda     intbasic::HIMEM+1
         sbc     intbasic::PP+1
-        sta     write_request_count+1
+        sta     rw_request_count+1
 
         jsr     SwapZP          ; ProDOS > IntBASIC
 
@@ -1106,7 +1119,7 @@ err:
 
         ;; Show current prefix
         MLI_CALL GET_PREFIX, prefix_params
-        bne     err
+        bne     finish
         ldx     #0
 :       cpx     PATHBUF
         beq     :+
@@ -1115,13 +1128,12 @@ err:
         jsr     intbasic::MON_COUT
         inx
         bne     :-              ; always
-:       clc
-        rts
+:       lda     #0              ; success
+        beq     finish
 
         ;; Set prefix
-set:
-        MLI_CALL SET_PREFIX, prefix_params
-err:    jmp     FinishCommand
+set:    MLI_CALL SET_PREFIX, prefix_params
+finish: jmp     FinishCommand
 .endproc ; PrefixCmd
 
 ;;; ============================================================
@@ -1132,46 +1144,46 @@ err:    jmp     FinishCommand
         beq     use_prefix
 
         ;; Verify file is a directory
-        MLI_CALL GET_FILE_INFO, gfi_params
+        jsr     GetFileInfo
         beq     :+
-        jmp     err
+        jmp     finish
 :
         lda     gfi_file_type
         cmp     #FT_DIR
         beq     open
         lda     #ERR_INCOMPATIBLE_FILE_FORMAT
-        jmp     err
+        jmp     finish
 
         ;; Use current prefix
 use_prefix:
         MLI_CALL GET_PREFIX, prefix_params
         beq     :+
-        jmp     err
+        jmp     finish
 :
 
         ENTRY_BUFFER := PATHBUF
 
-open:   MLI_CALL OPEN, open_params
+open:   jsr     Open
         beq     :+
-        jmp     err
+        jmp     finish
 :
         lda     open_ref_num
-        sta     read_ref_num
+        sta     rw_ref_num
         sta     close_ref_num
 
-        COPY16  #ENTRY_BUFFER, read_data_buffer
+        COPY16  #ENTRY_BUFFER, rw_data_buffer
 
         ;; Skip block pointers
-        COPY16  #4, read_request_count
-        MLI_CALL READ, read_params
+        COPY16  #4, rw_request_count
+        jsr     Read
         beq     :+
-        jmp     err
+        jmp     finish
 :
         ;; Read header
-        COPY16  #FILE_ENTRY_SIZE, read_request_count
-        MLI_CALL READ, read_params
+        COPY16  #FILE_ENTRY_SIZE, rw_request_count
+        jsr     Read
         beq     :+
-        jmp     err
+        jmp     finish
 :
         jsr     intbasic::MON_CROUT
         lda     ENTRY_BUFFER + $00 ; storage_type / name_length
@@ -1206,16 +1218,16 @@ next_entry:
         ;; Advance to next entry (and next block if needed)
         lda     entries_this_block
         bne     :+
-        COPY16  #5, read_request_count
-        MLI_CALL READ, read_params ; TODO: Handle EOF?
-        bne     err
+        COPY16  #5, rw_request_count
+        jsr     Read            ; TODO: Handle EOF?
+        bne     finish
         lda     entries_per_block
         sta     entries_this_block
 :
         dec     entries_this_block
-        COPY16  #FILE_ENTRY_SIZE, read_request_count
-        MLI_CALL READ, read_params ; TODO: Handle EOF?
-        bne     err
+        COPY16  #FILE_ENTRY_SIZE, rw_request_count
+        jsr     Read            ; TODO: Handle EOF?
+        bne     finish
 
         ;; Active entry?
         lda     ENTRY_BUFFER + $00 ; storage_type / name_length
@@ -1224,12 +1236,15 @@ next_entry:
         ;; Entry display: name, type, block count
         lda     #' '|$80
         jsr     intbasic::MON_COUT
+
         jsr     print_entry_name
+
         jsr     print_entry_type
+
         lda     #' '|$80
         jsr     intbasic::MON_COUT
-        ldx     ENTRY_BUFFER + $13
-        lda     ENTRY_BUFFER + $14
+        ldx     ENTRY_BUFFER + $13 ; blocks_used lo
+        lda     ENTRY_BUFFER + $14 ; blocks_used hi
         jsr     intbasic::PRDEC
         jsr     intbasic::MON_CROUT
 
@@ -1240,12 +1255,8 @@ next_entry:
         jmp     next_file
 :       sta     KBDSTRB
 
-close:  MLI_CALL CLOSE, close_params
-        clc
-        rts
-
-err:
-        jmp     ShowError
+close:  jsr     Close
+finish: jmp     FinishCommand
 
 .proc print_entry_name
         ;; Print the name
@@ -1355,9 +1366,9 @@ entries_this_block:
         sta     create_file_type
         LDXY    param_addr
         STXY    create_aux_type
-        STXY    write_data_buffer
+        STXY    rw_data_buffer
         LDXY    param_len
-        STXY    write_request_count
+        STXY    rw_request_count
 
         jmp     WriteFileCommon
 
@@ -1376,7 +1387,7 @@ syn:    sec
 
 .proc LoadBINFile
         ;; Check type, bail if not BIN
-        MLI_CALL GET_FILE_INFO, gfi_params
+        jsr     GetFileInfo
         bne     finish
         lda     gfi_file_type
         cmp     #FT_BIN
@@ -1389,20 +1400,18 @@ syn:    sec
         and     #ParseFlags::address
         beq     :+
         LDXY    param_addr      ; arg override
-:       STXY    read_data_buffer
+:       STXY    rw_data_buffer
 
         LDXY    #$FFFF          ; read everything
-        STXY    read_request_count
+        STXY    rw_request_count
 
-        MLI_CALL OPEN, open_params
+        jsr     Open
         bne     finish
         lda     open_ref_num
-        sta     read_ref_num
+        sta     rw_ref_num
         sta     close_ref_num
-        MLI_CALL READ, read_params
-        pha
-        MLI_CALL CLOSE, close_params
-        pla
+        jsr     Read
+        jsr     Close
 
 finish:
         rts
@@ -1418,7 +1427,7 @@ finish:
         lda     #0
 :       jmp     FinishCommand
 
-run:    jmp     (read_data_buffer)
+run:    jmp     (rw_data_buffer)
 .endproc ; BRunCmd
 
 ;;; ============================================================
@@ -1472,7 +1481,7 @@ skip:
 
 .proc WriteFileCommon
         ;; If it exists, is it the desired type?
-        MLI_CALL GET_FILE_INFO, gfi_params
+        jsr     GetFileInfo
         beq     check           ; exists, check type
         cmp     #ERR_FILE_NOT_FOUND
         beq     create          ; doesn't exist, create it
@@ -1499,15 +1508,13 @@ create:
         MLI_CALL CREATE, create_params
 
         ;; Write the file
-        MLI_CALL OPEN, open_params
+        jsr     Open
         bne     finish
         lda     open_ref_num
-        sta     write_ref_num
+        sta     rw_ref_num
         sta     close_ref_num
-        MLI_CALL WRITE, write_params
-        pha
-        MLI_CALL CLOSE, close_params
-        pla
+        MLI_CALL WRITE, rw_params
+        jsr     Close
 
 finish:
         .assert * = FinishCommand, error, "fall through"
