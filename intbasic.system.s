@@ -1159,42 +1159,36 @@ ret:    rts
 
         ;; Verify file is a directory
         jsr     GetFileInfo
-        beq     :+
-        rts
-:
+        bne     ret1
+
         lda     gfi_file_type
         cmp     #FT_DIR
         beq     open
         lda     #ERR_INCOMPATIBLE_FILE_FORMAT
-        rts
+ret1:   rts
 
         ;; Use current prefix
 use_prefix:
         MLI_CALL GET_PREFIX, prefix_params
-        beq     :+
-        rts
-:
+        bne     ret1
 
         ENTRY_BUFFER := PATHBUF
 
 open:   jsr     Open
-        beq     :+
-        rts
-:
+        bne     ret1
+
         COPY16  #ENTRY_BUFFER, rw_data_buffer
 
         ;; Skip block pointers
         COPY16  #4, rw_request_count
         jsr     Read
-        beq     :+
-        rts
-:
+        bne     ret1
+
         ;; Read header
         COPY16  #FILE_ENTRY_SIZE, rw_request_count
         jsr     Read
-        beq     :+
-        rts
-:
+        bne     ret1
+
         jsr     intbasic::MON_CROUT
         lda     ENTRY_BUFFER + $00 ; storage_type / name_length
         and     #$F0
