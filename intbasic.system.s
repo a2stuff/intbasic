@@ -324,10 +324,6 @@ have_path:
 open:
         jsr     Open
         bne     finish
-        lda     open_ref_num
-        sta     geteof_ref_num
-        sta     rw_ref_num
-        sta     close_ref_num
 
         ;; --------------------------------------------------
         ;; Compute the load address
@@ -405,6 +401,12 @@ intbasic_err:
 
 .proc Open
         MLI_CALL OPEN, open_params
+        pha
+        lda     open_ref_num
+        sta     geteof_ref_num
+        sta     rw_ref_num
+        sta     close_ref_num
+        pla
         rts
 .endproc
 
@@ -1173,10 +1175,6 @@ open:   jsr     Open
         beq     :+
         rts
 :
-        lda     open_ref_num
-        sta     rw_ref_num
-        sta     close_ref_num
-
         COPY16  #ENTRY_BUFFER, rw_data_buffer
 
         ;; Skip block pointers
@@ -1410,9 +1408,6 @@ syn:    lda     #$FF            ; syntax error
 
         jsr     Open
         bne     finish
-        lda     open_ref_num
-        sta     rw_ref_num
-        sta     close_ref_num
         jsr     Read
         jsr     Close
 
@@ -1506,9 +1501,6 @@ create:
         ;; Write the file
         jsr     Open
         bne     ret
-        lda     open_ref_num
-        sta     rw_ref_num
-        sta     close_ref_num
         MLI_CALL WRITE, rw_params
         jsr     Close
 
