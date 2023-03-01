@@ -1237,8 +1237,13 @@ next_entry:
         lda     ENTRY_BUFFER + $00 ; storage_type / name_length
         beq     next_entry         ; inactive - skip
 
-        ;; Entry display: name, type, block count
-        lda     #' '|$80
+        ;; Entry display: locked, name, type, block count
+        ldx     #' '|$80
+        lda     ENTRY_BUFFER + $1E ; access
+        and     #%11000010         ; destroy, rename, write
+        bne     :+
+        ldx     #'*'|$80        ; locked
+:       txa
         jsr     intbasic::MON_COUT
 
         jsr     print_entry_name
