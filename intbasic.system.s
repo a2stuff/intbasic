@@ -270,14 +270,12 @@ done_path:
 ;;; Load program (if given) and invoke Integer BASIC
 
 .proc Initialize
-        ;; Cold start - initialize Integer BASIC
-        jsr     ColdStart
-
         ;; Do we have a path?
         lda     PATHBUF
         bne     have_path
 
         ;; No, just show with prompt
+        jsr     ColdStart
         jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     intbasic::WARM
 
@@ -286,12 +284,11 @@ done_path:
 
 have_path:
         jsr     LoadINTFile
-        beq     :+
-        jmp     QuitCmd         ; fail - just QUIT back to ProDOS
-:
-        ;; Run the program
+        bne     quit
         jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     intbasic::RUN
+
+quit:   jmp     QuitCmd         ; fail - just QUIT back to ProDOS
 .endproc ; Initialize
 
 ;;; ============================================================
@@ -334,6 +331,9 @@ open:
 
         ;; In theory we should check geteof_eof+2 and fail
         ;; if > 64k, but how would such a file be created?
+
+        ;; At this point we're committed - reset HIMEM etc.
+        jsr     ColdStart
 
         ;; Set up zero page locations for the calculation
         jsr     SwapZP          ; ProDOS > IntBASIC
@@ -1092,33 +1092,22 @@ seen_params:
 ;;; "LOAD pathname"
 
 .proc LoadCmd
-        ;; Pop out of command hook - no going back now
-        pla
-        pla
-
-        jsr     ColdStart
         jsr     LoadINTFile
-        bne     err
+        bne     ret
 
         jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     intbasic::WARM
 
-err:
-        jsr     ColdStart
-        jmp     ShowError
+ret:    rts
 .endproc ; LoadCmd
 
 ;;; ============================================================
 ;;; "RUN pathname"
 
 .proc RunCmd
-        ;; Pop out of command hook - no going back now
-        pla
-        pla
-
-        jsr     ColdStart
         jsr     LoadINTFile
-        bne     LoadCmd::err
+        bne     LoadCmd::ret
+
         jsr     SwapZP          ; ProDOS > IntBASIC
         jmp     intbasic::RUN
 .endproc ; RunCmd
