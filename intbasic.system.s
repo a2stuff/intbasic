@@ -616,8 +616,10 @@ dispatch:
 
         lda     parse_flags
         .assert ParseFlags::ignore = $80, error, "enum mismatch"
-        bmi     done_parse
-
+        bpl     :+
+        clc
+        rts
+:
         and     #ParseFlags::path
         beq     :+
         jsr     ParsePath
@@ -649,7 +651,6 @@ dispatch:
         jsr     SkipSpaces
         cmp     #$8D
         bne     syn
-done_parse:
 
         ;; ..............................
         ;; Actual dispatch
@@ -658,8 +659,11 @@ done_parse:
         disp := *+1
         jsr     $FFFF           ; self-modified
         jsr     SwapZP          ; ProDOS > IntBASIC
-        bcs     syn
-        rts                     ; C=0 indicates we consumed it
+        bmi     syn
+        bne     :+
+        clc
+        rts
+:       jmp     ShowError
 
 syn:    ldy     #<intbasic::ErrMsg02 ;"SYNTAX"
         jmp     intbasic::ERRMESS
@@ -699,10 +703,12 @@ cmdtable:
         .byte   0
         .byte   0               ; sentinel
 
+        MonCmd := 0             ; ignored
+        NomonCmd := 0
 cmdproclo:
-        .byte   <RunCmd,<QuitCmd,<SaveCmd,<LoadCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd,<MonCmd,<MonCmd
+        .byte   <RunCmd,<QuitCmd,<SaveCmd,<LoadCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd,<MonCmd,<NomonCmd
 cmdprochi:
-        .byte   >RunCmd,>QuitCmd,>SaveCmd,>LoadCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd,>MonCmd,>MonCmd
+        .byte   >RunCmd,>QuitCmd,>SaveCmd,>LoadCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd,>MonCmd,>NomonCmd
         .assert * - cmdproclo = NUM_CMDS * 2, error, "table size"
 
 cmdparse:
@@ -1031,9 +1037,8 @@ seen_params:
         .byte   0
 
 ;;; ============================================================
-;;; Commands should return with:
-;;;   C=0 if command consumed (successful or otherwise)
-;;;   C=1 on syntax error (e.g. no filename given)
+;;; Commands return with ProDOS error code, $00 for success,
+;;; or high bit set for SYNTAX ERR.
 ;;; Commands are run with ProDOS ZP swapped in
 ;;; ============================================================
 
@@ -1115,11 +1120,16 @@ err:
 
 .proc PrefixCmd
         lda     PATHBUF
-        bne     set
+        beq     show
+
+        ;; Set prefix
+        MLI_CALL SET_PREFIX, prefix_params
+        rts
 
         ;; Show current prefix
+show:
         MLI_CALL GET_PREFIX, prefix_params
-        bne     finish
+        bne     ret
         ldx     #0
 :       cpx     PATHBUF
         beq     :+
@@ -1129,11 +1139,7 @@ err:
         inx
         bne     :-              ; always
 :       lda     #0              ; success
-        beq     finish
-
-        ;; Set prefix
-set:    MLI_CALL SET_PREFIX, prefix_params
-finish: jmp     FinishCommand
+ret:    rts
 .endproc ; PrefixCmd
 
 ;;; ============================================================
@@ -1146,26 +1152,26 @@ finish: jmp     FinishCommand
         ;; Verify file is a directory
         jsr     GetFileInfo
         beq     :+
-        jmp     finish
+        rts
 :
         lda     gfi_file_type
         cmp     #FT_DIR
         beq     open
         lda     #ERR_INCOMPATIBLE_FILE_FORMAT
-        jmp     finish
+        rts
 
         ;; Use current prefix
 use_prefix:
         MLI_CALL GET_PREFIX, prefix_params
         beq     :+
-        jmp     finish
+        rts
 :
 
         ENTRY_BUFFER := PATHBUF
 
 open:   jsr     Open
         beq     :+
-        jmp     finish
+        rts
 :
         lda     open_ref_num
         sta     rw_ref_num
@@ -1177,13 +1183,13 @@ open:   jsr     Open
         COPY16  #4, rw_request_count
         jsr     Read
         beq     :+
-        jmp     finish
+        rts
 :
         ;; Read header
         COPY16  #FILE_ENTRY_SIZE, rw_request_count
         jsr     Read
         beq     :+
-        jmp     finish
+        rts
 :
         jsr     intbasic::MON_CROUT
         lda     ENTRY_BUFFER + $00 ; storage_type / name_length
@@ -1220,14 +1226,14 @@ next_entry:
         bne     :+
         COPY16  #5, rw_request_count
         jsr     Read            ; TODO: Handle EOF?
-        bne     finish
+        bne     ret
         lda     entries_per_block
         sta     entries_this_block
 :
         dec     entries_this_block
         COPY16  #FILE_ENTRY_SIZE, rw_request_count
         jsr     Read            ; TODO: Handle EOF?
-        bne     finish
+        bne     ret
 
         ;; Active entry?
         lda     ENTRY_BUFFER + $00 ; storage_type / name_length
@@ -1256,7 +1262,7 @@ next_entry:
 :       sta     KBDSTRB
 
 close:  jsr     Close
-finish: jmp     FinishCommand
+ret:    rts
 
 .proc print_entry_name
         ;; Print the name
@@ -1337,7 +1343,7 @@ entries_this_block:
 
 .proc DeleteCmd
         MLI_CALL DESTROY, destroy_params
-        jmp     FinishCommand
+        rts
 .endproc ; DeleteCmd
 
 ;;; ============================================================
@@ -1345,7 +1351,7 @@ entries_this_block:
 
 .proc RenameCmd
         MLI_CALL RENAME, rename_params
-        jmp     FinishCommand
+        rts
 .endproc ; RenameCmd
 
 ;;; ============================================================
@@ -1359,8 +1365,10 @@ entries_this_block:
         bne     syn
         lda     param_len
         ora     param_len+1
-        beq     syn
-
+        bne     :+
+syn:    lda     #$FF            ; syntax error
+        rts
+:
         ;; Set file type, aux type, data address and length
         lda     #FT_BIN
         sta     create_file_type
@@ -1371,18 +1379,13 @@ entries_this_block:
         STXY    rw_request_count
 
         jmp     WriteFileCommon
-
-syn:    sec
-        rts
 .endproc ; BSaveCmd
 
 ;;; ============================================================
 ;;; "BLOAD pathname[,A<address>]"
 
 .proc BLoadCmd
-        jsr     LoadBINFile
-        jmp     FinishCommand
-
+        jmp     LoadBINFile
 .endproc ; BLoadCmd
 
 .proc LoadBINFile
@@ -1425,18 +1428,10 @@ finish:
         bne     :+
         jsr     run
         lda     #0
-:       jmp     FinishCommand
+:       rts
 
 run:    jmp     (rw_data_buffer)
 .endproc ; BRunCmd
-
-;;; ============================================================
-;;; "MON" and "NOMON"
-
-.proc MonCmd
-        clc
-        rts
-.endproc ; MonCmd
 
 ;;; ============================================================
 ;;; "PR#<slot>"
@@ -1446,13 +1441,15 @@ run:    jmp     (rw_data_buffer)
         jsr     SwapZP          ; ProDOS > IntBASIC
         jsr     intbasic::MON_OUTPORT
         jsr     SwapZP          ; IntBASIC > ProDOS
-        .assert * = HookCSW, error, "fall through"
+        jsr     HookCSW
+        lda     #0
+        rts
 .endproc ; PRCmd
 
 ;;; ============================================================
 
 ;;; Redirect CSW to `CSWHook`
-;;; Output: CSW will be hooked (if not already), C=0
+;;; Output: CSW will be hooked (if not already)
 ;;; Preserves: A,X,Y
 .proc HookCSW
         stx     save_x
@@ -1473,7 +1470,6 @@ skip:
         ldx     #$00            ; self-modified
         save_y := *+1
         ldy     #$00            ; self-modified
-        clc
         rts
 .endproc ; HookCSW
 
@@ -1485,17 +1481,17 @@ skip:
         beq     check           ; exists, check type
         cmp     #ERR_FILE_NOT_FOUND
         beq     create          ; doesn't exist, create it
-        bne     finish          ; other error
+        bne     ret             ; other error
 
 check:  lda     gfi_file_type   ; check type
         cmp     create_file_type
         beq     delete          ; okay to overwrite
         lda     #ERR_INCOMPATIBLE_FILE_FORMAT
-        bne     finish          ; always
+        bne     ret             ; always
 
         ;; Delete so size/addr/etc updated
 delete: MLI_CALL DESTROY, destroy_params
-        bne     finish
+        bne     ret
 
         ;; Create the file
 create:
@@ -1509,26 +1505,15 @@ create:
 
         ;; Write the file
         jsr     Open
-        bne     finish
+        bne     ret
         lda     open_ref_num
         sta     rw_ref_num
         sta     close_ref_num
         MLI_CALL WRITE, rw_params
         jsr     Close
 
-finish:
-        .assert * = FinishCommand, error, "fall through"
+ret:    rts
 .endproc ; WriteFileCommon
-
-;;; ============================================================
-;;; Jump to at the end of a command; if Z=0 ShowError, else
-;;; returns with C=0
-
-.proc FinishCommand
-        bne     ShowError
-        clc
-        rts
-.endproc ; FinishCommand
 
 ;;; ============================================================
 ;;; Show ProDOS error message / number
