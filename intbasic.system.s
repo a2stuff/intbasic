@@ -199,11 +199,9 @@ done_banner:
         bmi     done_path
 
         lda     #OPC_JMP_abs
-        LDXY    #reloc__QuitCmd
+        LDXY    #reloc__QuitFromIntBASIC
         sta     reloc + (intbasic__WARM      - BASIC_START)
         STXY    reloc + (intbasic__WARM+1    - BASIC_START)
-        sta     reloc + (intbasic__ERRMESS   - BASIC_START)
-        STXY    reloc + (intbasic__ERRMESS+1 - BASIC_START)
 
 done_path:
 
@@ -270,37 +268,27 @@ done_path:
 ;;; Load program (if given) and invoke Integer BASIC
 
 .proc Initialize
-        ;; Do we have a path?
-        lda     PATHBUF
-        bne     have_path
-
-        ;; No, just show with prompt
-        jsr     ColdStart
-        jsr     SwapZP          ; ProDOS > IntBASIC
-        jmp     intbasic::WARM
-
-        ;; --------------------------------------------------
-        ;; Have path
-
-have_path:
-        jsr     LoadINTFile
-        bne     quit
-        jsr     SwapZP          ; ProDOS > IntBASIC
-        jmp     intbasic::RUN
-
-quit:   jmp     QuitCmd         ; fail - just QUIT back to ProDOS
-.endproc ; Initialize
-
-;;; ============================================================
-
-.proc ColdStart
         jsr     SwapZP          ; ProDOS > IntBASIC
         jsr     intbasic::COLD
         LDXY    #OUR_HIMEM
         STXY    intbasic::HIMEM
         jsr     intbasic::NEW   ; reset PP, PV, stacks
-        jmp     SwapZP          ; IntBASIC > ProDOS
-.endproc ; ColdStart
+        jsr     SwapZP          ; IntBASIC > ProDOS
+
+        ;; Do we have a path?
+        lda     PATHBUF
+        beq     warm
+        jsr     LoadINTFile
+        bne     warm
+
+        ;; Run it
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        jmp     intbasic::RUN
+
+        ;; Show prompt
+warm:   jsr     SwapZP          ; ProDOS > IntBASIC
+        jmp     intbasic::WARM
+.endproc ; Initialize
 
 ;;; ============================================================
 
@@ -332,8 +320,9 @@ open:
         ;; In theory we should check geteof_eof+2 and fail
         ;; if > 64k, but how would such a file be created?
 
-        ;; At this point we're committed - reset HIMEM etc.
-        jsr     ColdStart
+        ;; At this point we're committed - reset HIMEM
+        LDXY    #OUR_HIMEM
+        STXY    intbasic::HIMEM
 
         ;; Set up zero page locations for the calculation
         jsr     SwapZP          ; ProDOS > IntBASIC
@@ -670,7 +659,7 @@ dispatch:
 syn:    ldy     #<intbasic::ErrMsg02 ;"SYNTAX"
         jmp     intbasic::ERRMESS
 
-NUM_CMDS = 17
+NUM_CMDS = 18
 
 cmdtable:
         scrcode "RUN"           ; must be 0 for special handling
@@ -680,6 +669,8 @@ cmdtable:
         scrcode "SAVE"
         .byte   0
         scrcode "LOAD"
+        .byte   0
+        scrcode "CHAIN"
         .byte   0
         scrcode "PREFIX"
         .byte   0
@@ -712,9 +703,9 @@ cmdtable:
         MonCmd := 0             ; ignored
         NomonCmd := 0
 cmdproclo:
-        .byte   <RunCmd,<QuitCmd,<SaveCmd,<LoadCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd,<MonCmd,<NomonCmd,<LockCmd,<UnlockCmd
+        .byte   <RunCmd,<QuitCmd,<SaveCmd,<LoadCmd,<ChainCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd,<MonCmd,<NomonCmd,<LockCmd,<UnlockCmd
 cmdprochi:
-        .byte   >RunCmd,>QuitCmd,>SaveCmd,>LoadCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd,>MonCmd,>NomonCmd,>LockCmd,>UnlockCmd
+        .byte   >RunCmd,>QuitCmd,>SaveCmd,>LoadCmd,>ChainCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd,>MonCmd,>NomonCmd,>LockCmd,>UnlockCmd
         .assert * - cmdproclo = NUM_CMDS * 2, error, "table size"
 
 cmdparse:
@@ -722,6 +713,7 @@ cmdparse:
         .byte   0                                       ; BYE
         .byte   ParseFlags::path                        ; SAVE
         .byte   ParseFlags::path                        ; LOAD
+        .byte   ParseFlags::path                        ; CHAIN
         .byte   ParseFlags::path | ParseFlags::path_opt ; PREFIX
         .byte   ParseFlags::path | ParseFlags::path_opt ; CATALOG
         .byte   ParseFlags::path | ParseFlags::path_opt ; CAT
@@ -1053,6 +1045,11 @@ seen_params:
 ;;; ============================================================
 ;;; "BYE"
 
+.proc QuitFromIntBASIC
+        jsr     SwapZP          ; IntBASIC > ProDOS
+        .assert * = QuitCmd, error, "fall through"
+.endproc
+
 .proc QuitCmd
         MLI_CALL QUIT, quit_params
         brk
@@ -1102,6 +1099,19 @@ ret:    rts
 .endproc ; LoadCmd
 
 ;;; ============================================================
+;;; "CHAIN pathname"
+
+.proc ChainCmd
+        jsr     LoadINTFile
+        bne     ret
+
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        jmp     intbasic::RUNWARM
+
+ret:    rts
+.endproc ; LoadCmd
+
+;;; ============================================================
 ;;; "RUN pathname"
 
 .proc RunCmd
@@ -1109,6 +1119,8 @@ ret:    rts
         bne     LoadCmd::ret
 
         jsr     SwapZP          ; ProDOS > IntBASIC
+        LDXY    intbasic::LOMEM ; reset vars
+        STXY    intbasic::PV
         jmp     intbasic::RUN
 .endproc ; RunCmd
 
@@ -1635,12 +1647,11 @@ output_state:
 
         ;; Exports
         reloc__Initialize := reloc::Initialize
-        reloc__QuitCmd := reloc::QuitCmd
+        reloc__QuitFromIntBASIC := reloc::QuitFromIntBASIC
         reloc__CommandHook := reloc::CommandHook
         reloc__HookCSW := reloc::HookCSW
         intbasic__GETCMD := reloc::intbasic::GETCMD
         intbasic__WARM := reloc::intbasic::WARM
-        intbasic__ERRMESS := reloc::intbasic::ERRMESS
 
         .assert * <= MLI, error, "collision"
         .out .sprintf("MEM: $%04X end of Command Handler", *)

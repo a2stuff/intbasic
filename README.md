@@ -7,6 +7,7 @@ This is a version of Steve Wozniak's Integer BASIC for the Apple II, with a wrap
    * `SAVE path` saves the current program as an `INT` program file.
    * `LOAD path` loads an `INT` program file.
    * `RUN path` loads and runs an `INT` program file.
+   * `CHAIN path` loads and runs an `INT` program file, without clearing variables.
    * `PREFIX` shows the current ProDOS prefix.
    * `PREFIX path` sets the current ProDOS prefix.
    * `CAT` or `CATALOG` shows the contents of the current directory.

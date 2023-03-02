@@ -37,7 +37,7 @@ package () {
     add_file "out/intbasic.system.SYS" "IntBASIC.system#FF0000"
     add_file "res/PRODOS.SYS" "PRODOS#FF0000"
     add_file "res/WOZ.BREAKOUT.INT" "WOZ.BREAKOUT#FA0000"
-    add_file "res/TESTS.INT" "TESTS#FA0000"
+    add_file "res/APPLEVISION.INT" "APPLEVISION#FA0000"
     add_file "out/readme" "README#040000"
 
     rm -r "$PACKDIR"
