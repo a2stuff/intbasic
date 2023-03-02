@@ -28,4 +28,4 @@ jobs:
         uses: ncipollo/release-action@v1.11.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: "out/intbasic.system.po,out/intbasic.system.2mg"
+          artifacts: "out/intbasic_system.po,out/intbasic_system.2mg"
