@@ -1,6 +1,6 @@
 
 CAFLAGS := --target apple2enh --list-bytes 0
-LDFLAGS := --config IntegerBASIC_cc65.cfg
+LDFLAGS := --config apple2-asm.cfg
 
 OUTDIR := out
 
