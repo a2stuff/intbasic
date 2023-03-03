@@ -200,10 +200,18 @@ done_banner:
 
         lda     #OPC_JMP_abs
         LDXY    #reloc__QuitFromIntBASIC
-        sta     reloc + (intbasic__WARM      - BASIC_START)
-        STXY    reloc + (intbasic__WARM+1    - BASIC_START)
+        sta     reloc + (intbasic__WARM   - BASIC_START)
+        STXY    reloc + (intbasic__WARM+1 - BASIC_START)
 
 done_path:
+
+;;; --------------------------------------------------
+;;; Bug fixes
+
+        GR_TOKEN = 76
+        LDXY    #reloc__OurSETGR
+        stx     reloc + (intbasic__VERBADRL - BASIC_START) + GR_TOKEN
+        sty     reloc + (intbasic__VERBADRH - BASIC_START) + GR_TOKEN
 
 ;;; --------------------------------------------------
 ;;; Configure system bitmap
@@ -1639,6 +1647,17 @@ output_state:
 .endproc ; CSWHook
         CSWHook__orig := CSWHook::orig
 
+;;; ============================================================
+;;; Patch for GR issue
+
+;;; IntBASIC: GR calls MON_GR which hits TXTCLR and MIXSET but not
+;;; LORES, so if the previous program hit HIRES the lores screen
+;;; will not show.
+
+.proc OurSETGR
+        sta     LORES
+        jmp     intbasic::MON_SETGR
+.endproc
 
 ;;; ============================================================
 
@@ -1650,8 +1669,12 @@ output_state:
         reloc__QuitFromIntBASIC := reloc::QuitFromIntBASIC
         reloc__CommandHook := reloc::CommandHook
         reloc__HookCSW := reloc::HookCSW
+        reloc__OurSETGR := reloc::OurSETGR
+
         intbasic__GETCMD := reloc::intbasic::GETCMD
         intbasic__WARM := reloc::intbasic::WARM
+        intbasic__VERBADRL := reloc::intbasic::VERBADRL
+        intbasic__VERBADRH := reloc::intbasic::VERBADRH
 
         .assert * <= MLI, error, "collision"
         .out .sprintf("MEM: $%04X end of Command Handler", *)
