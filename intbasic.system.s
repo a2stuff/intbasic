@@ -306,16 +306,11 @@ warm:   jsr     SwapZP          ; ProDOS > IntBASIC
 ;;; Assert: ProDOS ZP swapped in
 .proc LoadINTFile
         ;; Check type, bail if not INT
-        jsr     GetFileInfo
+        lda     #FT_INT
+        jsr     GetFileInfoRequireType
         bne     finish
-        lda     gfi_file_type
-        cmp     #FT_INT
-        beq     open
-        lda     #ERR_INCOMPATIBLE_FILE_FORMAT
-        bne     finish          ; always
 
         ;; Open the file
-open:
         jsr     Open
         bne     finish
 
@@ -1173,14 +1168,9 @@ ret:    rts
 
 .proc RestoreCmd
         ;; Check type, bail if not IVR
-        jsr     GetFileInfo
+        lda     #FT_IVR
+        jsr     GetFileInfoRequireType
         bne     finish
-        lda     gfi_file_type
-        cmp     #FT_IVR
-        beq     :+
-        lda     #ERR_INCOMPATIBLE_FILE_FORMAT
-        bne     finish          ; always
-:
 
         ;; Set file type, aux type, data address and length
         jsr     SwapZP          ; IntBASIC > ProDOS
@@ -1190,10 +1180,7 @@ ret:    rts
         STXY    rw_request_count
         jsr     SwapZP          ; ProDOS > IntBASIC
 
-        jsr     Open
-        bne     finish
-        jsr     Read
-        jsr     Close
+        jsr     OpenReadClose
         bne     finish
 
         ;; Success - update IB zero page
@@ -1247,13 +1234,9 @@ ret:    rts
         beq     use_prefix
 
         ;; Verify file is a directory
-        jsr     GetFileInfo
-        bne     ret1
-
-        lda     gfi_file_type
-        cmp     #FT_DIR
+        lda     #FT_DIR
+        jsr     GetFileInfoRequireType
         beq     open
-        lda     #ERR_INCOMPATIBLE_FILE_FORMAT
 ret1:   rts
 
         ;; Use current prefix
@@ -1484,14 +1467,10 @@ syn:    lda     #$FF            ; syntax error
 
 .proc LoadBINFile
         ;; Check type, bail if not BIN
-        jsr     GetFileInfo
+        lda     #FT_BIN
+        jsr     GetFileInfoRequireType
         bne     finish
-        lda     gfi_file_type
-        cmp     #FT_BIN
-        beq     :+
-        lda     #ERR_INCOMPATIBLE_FILE_FORMAT
-        bne     finish          ; always
-:
+
         LDXY    gfi_aux_type    ; default load address
         lda     seen_params
         and     #ParseFlags::address
@@ -1502,10 +1481,7 @@ syn:    lda     #$FF            ; syntax error
         LDXY    #$FFFF          ; read everything
         STXY    rw_request_count
 
-        jsr     Open
-        bne     finish
-        jsr     Read
-        jsr     Close
+        jsr     OpenReadClose
 
 finish:
         rts
@@ -1628,6 +1604,32 @@ create:
 
 ret:    rts
 .endproc ; WriteFileCommon
+
+;;; ============================================================
+;;; Input: A = required type, path to load in `PATHBUF`
+;;; Output: Z=1 if file exists and matching type, Z=0 and A=err otherwise
+;;;         `gfi_params` left populated
+.proc GetFileInfoRequireType
+        sta     type
+        jsr     GetFileInfo
+        bne     ret
+        lda     gfi_file_type
+        type := *+1
+        cmp     #$00            ; self-modified
+        beq     ret
+        lda     #ERR_INCOMPATIBLE_FILE_FORMAT
+ret:    rts
+.endproc ; GetFileInfoRequireType
+
+;;; ============================================================
+
+.proc OpenReadClose
+        jsr     Open
+        bne     ret
+        jsr     Read
+        jsr     Close
+ret:    rts
+.endproc ; OpenReadClose
 
 ;;; ============================================================
 ;;; Show ProDOS error message / number
