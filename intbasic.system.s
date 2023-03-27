@@ -93,6 +93,7 @@ FT_TXT          = $04
 FT_BIN          = $06
 FT_DIR          = $0F
 FT_INT          = $FA
+FT_IVR          = $FB
 FT_BAS          = $FC
 FT_SYS          = $FF
 
@@ -667,7 +668,7 @@ dispatch:
 syn:    ldy     #<intbasic::ErrMsg02 ;"SYNTAX"
         jmp     intbasic::ERRMESS
 
-NUM_CMDS = 18
+NUM_CMDS = 20
 
 cmdtable:
         scrcode "RUN"           ; must be 0 for special handling
@@ -706,14 +707,18 @@ cmdtable:
         .byte   0
         scrcode "UNLOCK"
         .byte   0
+        scrcode "STORE"
+        .byte   0
+        scrcode "RESTORE"
+        .byte   0
         .byte   0               ; sentinel
 
         MonCmd := 0             ; ignored
         NomonCmd := 0
 cmdproclo:
-        .byte   <RunCmd,<QuitCmd,<SaveCmd,<LoadCmd,<ChainCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd,<MonCmd,<NomonCmd,<LockCmd,<UnlockCmd
+        .byte   <RunCmd,<QuitCmd,<SaveCmd,<LoadCmd,<ChainCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd,<MonCmd,<NomonCmd,<LockCmd,<UnlockCmd,<StoreCmd,<RestoreCmd
 cmdprochi:
-        .byte   >RunCmd,>QuitCmd,>SaveCmd,>LoadCmd,>ChainCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd,>MonCmd,>NomonCmd,>LockCmd,>UnlockCmd
+        .byte   >RunCmd,>QuitCmd,>SaveCmd,>LoadCmd,>ChainCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd,>MonCmd,>NomonCmd,>LockCmd,>UnlockCmd,>StoreCmd,>RestoreCmd
         .assert * - cmdproclo = NUM_CMDS * 2, error, "table size"
 
 cmdparse:
@@ -735,6 +740,8 @@ cmdparse:
         .byte   ParseFlags::ignore                      ; NOMON
         .byte   ParseFlags::path                        ; LOCK
         .byte   ParseFlags::path                        ; UNLOCK
+        .byte   ParseFlags::path                        ; STORE
+        .byte   ParseFlags::path                        ; RESTORE
         .assert * - cmdparse = NUM_CMDS, error, "table size"
 
 parse_flags:
@@ -1133,6 +1140,79 @@ ret:    rts
 .endproc ; RunCmd
 
 ;;; ============================================================
+;;; "STORE pathname"
+
+.proc StoreCmd
+        ;; Set file type, aux type, data address and length
+        lda     #FT_IVR
+        sta     create_file_type
+
+        LDXY    #0
+        STXY    create_aux_type
+
+        jsr     SwapZP          ; IntBASIC > ProDOS
+
+        LDXY    intbasic::LOMEM
+        STXY    rw_data_buffer
+
+        sec
+        lda     intbasic::PV
+        sbc     intbasic::LOMEM
+        sta     rw_request_count
+        lda     intbasic::PV+1
+        sbc     intbasic::LOMEM+1
+        sta     rw_request_count+1
+
+        jsr     SwapZP          ; ProDOS > IntBASIC
+
+        jmp     WriteFileCommon
+.endproc ; StoreCmd
+
+;;; ============================================================
+;;; "STORE pathname"
+
+.proc RestoreCmd
+        ;; Check type, bail if not IVR
+        jsr     GetFileInfo
+        bne     finish
+        lda     gfi_file_type
+        cmp     #FT_IVR
+        beq     :+
+        lda     #ERR_INCOMPATIBLE_FILE_FORMAT
+        bne     finish          ; always
+:
+
+        ;; Set file type, aux type, data address and length
+        jsr     SwapZP          ; IntBASIC > ProDOS
+        LDXY    intbasic::LOMEM
+        STXY    rw_data_buffer
+        LDXY    #$FFFF          ; read everything
+        STXY    rw_request_count
+        jsr     SwapZP          ; ProDOS > IntBASIC
+
+        jsr     Open
+        bne     finish
+        jsr     Read
+        jsr     Close
+        bne     finish
+
+        ;; Success - update IB zero page
+        jsr     SwapZP          ; IntBASIC > ProDOS
+        clc
+        lda     rw_trans_count
+        adc     intbasic::LOMEM
+        sta     intbasic::PV
+        lda     rw_trans_count+1
+        adc     intbasic::LOMEM+1
+        sta     intbasic::PV+1
+        jsr     SwapZP          ; ProDOS > IntBASIC
+
+        lda     #0              ; success
+finish:
+        rts
+.endproc ; RestoreCmd
+
+;;; ============================================================
 ;;; "PREFIX" or "PREFIX pathname"
 
 .proc PrefixCmd
@@ -1334,6 +1414,8 @@ types:
         scrcode "DIR"
         .byte   FT_INT
         scrcode "INT"
+        .byte   FT_IVR
+        scrcode "IVR"
         .byte   FT_BAS
         scrcode "BAS"
         .byte   FT_SYS
@@ -1397,7 +1479,7 @@ syn:    lda     #$FF            ; syntax error
 ;;; "BLOAD pathname[,A<address>]"
 
 .proc BLoadCmd
-        jmp     LoadBINFile
+        .assert * = LoadBINFile, error, "fall through"
 .endproc ; BLoadCmd
 
 .proc LoadBINFile
