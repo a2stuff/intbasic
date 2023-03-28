@@ -658,10 +658,31 @@ dispatch:
         bne     :+
         clc
         rts
-:       jmp     ShowError
+:
+        ;; ..............................
+        ;; Show error messages
 
+        ;; ProDOS error
+        pha
+        ldx     #0
+:       lda     message,x
+        beq     :+
+        jsr     intbasic::MON_COUT
+        inx
+        bne     :-              ; always
+:       pla
+        jsr     PRBYTE
+        jsr     intbasic::MON_CROUT
+        jmp     intbasic::ERRMESS+3
+
+        ;; Syntax error
 syn:    ldy     #<intbasic::ErrMsg02 ;"SYNTAX"
         jmp     intbasic::ERRMESS
+
+message:
+        .byte   $87             ; BELL
+        scrcode "*** PRODOS ERR $"
+        .byte   0
 
 NUM_CMDS = 20
 
@@ -1630,29 +1651,6 @@ ret:    rts
         jsr     Close
 ret:    rts
 .endproc ; OpenReadClose
-
-;;; ============================================================
-;;; Show ProDOS error message / number
-
-.proc ShowError
-        pha
-        ldx     #0
-:       lda     message,x
-        beq     :+
-        jsr     intbasic::MON_COUT
-        inx
-        bne     :-              ; always
-:       pla
-        jsr     PRBYTE
-        jsr     intbasic::MON_CROUT
-        jsr     SwapZP          ; ProDOS > IntBASIC
-        jmp     intbasic::ERRMESS+3
-
-message:
-        .byte   $87             ; BELL
-        scrcode "*** PRODOS ERR $"
-        .byte   0
-.endproc ; ShowError
 
 ;;; ============================================================
 
