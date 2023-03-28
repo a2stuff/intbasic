@@ -684,7 +684,7 @@ message:
         scrcode "*** PRODOS ERR $"
         .byte   0
 
-NUM_CMDS = 20
+NUM_CMDS = 21
 
 cmdtable:
         scrcode "RUN"           ; must be 0 for special handling
@@ -727,14 +727,16 @@ cmdtable:
         .byte   0
         scrcode "RESTORE"
         .byte   0
+        scrcode "-"
+        .byte   0
         .byte   0               ; sentinel
 
         MonCmd := 0             ; ignored
         NomonCmd := 0
 cmdproclo:
-        .byte   <RunCmd,<QuitCmd,<SaveCmd,<LoadCmd,<ChainCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd,<MonCmd,<NomonCmd,<LockCmd,<UnlockCmd,<StoreCmd,<RestoreCmd
+        .byte   <RunCmd,<QuitCmd,<SaveCmd,<LoadCmd,<ChainCmd,<PrefixCmd,<CatCmd,<CatCmd,<DeleteCmd,<RenameCmd,<BSaveCmd,<BLoadCmd,<BRunCmd,<PRCmd,<MonCmd,<NomonCmd,<LockCmd,<UnlockCmd,<StoreCmd,<RestoreCmd,<DashCmd
 cmdprochi:
-        .byte   >RunCmd,>QuitCmd,>SaveCmd,>LoadCmd,>ChainCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd,>MonCmd,>NomonCmd,>LockCmd,>UnlockCmd,>StoreCmd,>RestoreCmd
+        .byte   >RunCmd,>QuitCmd,>SaveCmd,>LoadCmd,>ChainCmd,>PrefixCmd,>CatCmd,>CatCmd,>DeleteCmd,>RenameCmd,>BSaveCmd,>BLoadCmd,>BRunCmd,>PRCmd,>MonCmd,>NomonCmd,>LockCmd,>UnlockCmd,>StoreCmd,>RestoreCmd,>DashCmd
         .assert * - cmdproclo = NUM_CMDS * 2, error, "table size"
 
 cmdparse:
@@ -758,6 +760,7 @@ cmdparse:
         .byte   ParseFlags::path                        ; UNLOCK
         .byte   ParseFlags::path                        ; STORE
         .byte   ParseFlags::path                        ; RESTORE
+        .byte   ParseFlags::path                        ; -
         .assert * - cmdparse = NUM_CMDS, error, "table size"
 
 parse_flags:
@@ -1143,19 +1146,6 @@ ret:    rts
 .endproc ; LoadCmd
 
 ;;; ============================================================
-;;; "RUN pathname"
-
-.proc RunCmd
-        jsr     LoadINTFile
-        bne     LoadCmd::ret
-
-        jsr     SwapZP          ; ProDOS > IntBASIC
-        LDXY    intbasic::LOMEM ; reset vars
-        STXY    intbasic::PV
-        jmp     intbasic::RUN
-.endproc ; RunCmd
-
-;;; ============================================================
 ;;; "STORE pathname"
 
 .proc StoreCmd
@@ -1507,6 +1497,48 @@ syn:    lda     #$FF            ; syntax error
 finish:
         rts
 .endproc ; LoadBINFile
+
+;;; ============================================================
+;;; "-<file>"
+
+.proc DashCmd
+        jsr     GetFileInfo
+        bne     ret
+        lda     gfi_file_type
+        cmp     #FT_BIN
+        beq     BRunCmd
+        cmp     #FT_INT
+        beq     RunCmd
+        cmp     #FT_SYS
+        bne     err
+
+        LDXY    CSWHook__orig
+        STXY    CSWL
+
+        LDXY    #$2000
+        STXY    rw_data_buffer
+        LDXY    #$FFFF          ; read everything
+        STXY    rw_request_count
+        jsr     OpenReadClose
+        bne     ret
+        jmp     $2000
+
+err:    lda     #ERR_INCOMPATIBLE_FILE_FORMAT
+ret:    rts
+.endproc ; DashCmd
+
+;;; ============================================================
+;;; "RUN pathname"
+
+.proc RunCmd
+        jsr     LoadINTFile
+        bne     DashCmd::ret
+
+        jsr     SwapZP          ; ProDOS > IntBASIC
+        LDXY    intbasic::LOMEM ; reset vars
+        STXY    intbasic::PV
+        jmp     intbasic::RUN
+.endproc ; RunCmd
 
 ;;; ============================================================
 ;;; "BRUN pathname[,A<address>]"

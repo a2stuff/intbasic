@@ -180,6 +180,13 @@ NEW
 506 TEST$ = "STORE/RESTORE #2"
 507 A=(E=5678) : GOSUB VERIFY
 
+510 TEST$ = "- (dash)"
+511 RTS = 96 : POKE 8192,RTS
+512 PRINT D$;"BSAVE BIN,A8192,L1"
+513 POKE 8192,0
+514 PRINT D$;"-BIN"
+515 A = PEEK(8192) = RTS : GOSUB VERIFY
+
 9000 REM ******************************
 9001 REM CLEANUP
 9002 REM ******************************
