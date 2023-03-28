@@ -14,9 +14,9 @@ This is a version of Steve Wozniak's Integer BASIC for the Apple II, with a wrap
    * `CAT path` or `CATALOG path` shows the contents of the specified directory.
    * `DELETE path` deletes the specified file.
    * `RENAME path,newpath` renames the specified file.
-   * `BSAVE path,A<address>,L<length>"` saves a `BIN` file.
-   * `BLOAD path[,A<address>]"` loads a `BIN` file.
-   * `BRUN path[,A<address>]"` runs a `BIN` file.
+   * `BSAVE path,A<address>,L<length>` saves a `BIN` file.
+   * `BLOAD path[,A<address>]` loads a `BIN` file.
+   * `BRUN path[,A<address>]` runs a `BIN` file.
    * `LOCK path` and `UNLOCK path` lock/unlock the specified file.
    * `STORE path` and `RESTORE path` save/load variables to the specified `IVR` file.
    * `-path` runs `INT`, `BIN` or `SYS` files
