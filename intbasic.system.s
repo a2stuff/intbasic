@@ -68,6 +68,7 @@ COUT    =       $FDED
 
 ;;; ProDOS Equates
 MLI             := $BF00
+DEVNUM          := $BF30
 BITMAP          := $BF58
 BITMAP_SIZE     =  24
 DATELO          := $BF90
@@ -79,6 +80,7 @@ DESTROY         = $C1
 RENAME          = $C2
 SET_FILE_INFO   = $C3
 GET_FILE_INFO   = $C4
+ON_LINE         = $C5
 SET_PREFIX      = $C6
 GET_PREFIX      = $C7
 OPEN            = $C8
@@ -207,6 +209,26 @@ done_banner:
 done_path:
 
 ;;; --------------------------------------------------
+;;; Set PREFIX if blank
+
+        ON_LINE_BUF = PATH2+1
+        MLI_CALL GET_PREFIX, prefix_params
+        lda     PATH2
+        bne     prefix_ok
+        lda     DEVNUM
+        sta     on_line_unit_num
+        MLI_CALL ON_LINE, on_line_params
+        lda     ON_LINE_BUF
+        and     #$0F            ; mask off length
+        tax
+        inx
+        stx     PATH2
+        lda     #'/'
+        sta     PATH2+1
+        MLI_CALL SET_PREFIX, prefix_params
+prefix_ok:
+
+;;; --------------------------------------------------
 ;;; Bug fixes
 
         GR_TOKEN = 76
@@ -253,6 +275,19 @@ done_path:
         jmp     reloc__Initialize
 
         .out .sprintf("MEM: Bootstrap is $%04X bytes", * - $2000)
+
+;;; --------------------------------------------------
+
+;;; GET/SET_PREFIX
+prefix_params:
+prefix_param_count:     .byte   1 ; in
+prefix_pathname:        .addr   PATH2 ; in
+
+;;; ON_LINE
+on_line_params:
+on_line_param_count:    .byte   2 ; in
+on_line_unit_num:       .byte   1 ; in
+on_line_data_buffer:    .addr   ON_LINE_BUF ; in
 
 ;;; ============================================================
 ;;; Integer BASIC Implementation
