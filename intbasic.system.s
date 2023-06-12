@@ -25,9 +25,9 @@
 ;;;          | IntBASIC  |
 ;;;          |           |
 ;;;          |           |
-;;;  $A200   +-----------+  BASIC_START
+;;;  $A000   +-----------+  BASIC_START
 ;;;          | IO_BUFFER |
-;;;  $9E00   +-----------+  HIMEM
+;;;  $9C00   +-----------+  HIMEM
 ;;;          | Program   |
 ;;;          |     |     |
 ;;;          |     v     |
@@ -143,9 +143,9 @@ ZP_SAVE_LEN     =  $15
 ;;; System Program
 ;;; ============================================================
 
-        IO_BUFFER := $9E00
+        IO_BUFFER := $9C00
         OUR_HIMEM := IO_BUFFER
-        BASIC_START := $A200
+        BASIC_START := $A000
 
         PATHBUF := $280
         PATH2   := $2C0
@@ -235,6 +235,14 @@ prefix_ok:
         LDXY    #reloc__OurSETGR
         stx     reloc + (intbasic__VERBADRL - BASIC_START) + GR_TOKEN
         sty     reloc + (intbasic__VERBADRH - BASIC_START) + GR_TOKEN
+
+;;; --------------------------------------------------
+;;; Hook CALL instruction
+
+        lda     #OPC_JMP_abs
+        LDXY    #reloc__OurCALL
+        sta     reloc + (intbasic__CALL - BASIC_START) + 3
+        STXY    reloc + (intbasic__CALL - BASIC_START) + 4
 
 ;;; --------------------------------------------------
 ;;; Configure system bitmap
@@ -1809,6 +1817,34 @@ output_state:
 .endproc
 
 ;;; ============================================================
+;;; Hook for CALL
+;;;
+;;; Replaces `JMP (ACC)`; instead, this checks if ACC is a call
+;;; into the Programmer's Aid 1.6 sound routine. If so, it uses
+;;; our copy instead.
+
+;;; TODO: Consider making this table driven, to support more
+;;; relocated Progarmmer's Aid routines.
+.proc OurCALL
+        ;; Override?
+        lda     intbasic__ACC
+        cmp     #<PA16
+        bne     :+
+        lda     intbasic__ACC+1
+        cmp     #>PA16
+        beq     PA16_COPY
+:
+        ;; Finish original intbasic::CALL
+        jmp     (intbasic__ACC)
+.endproc
+
+        ;; TODO: Relocate this into LCBANK2 above $D400
+PA16 := $D717
+.proc PA16_COPY
+        .include "Programmers_Aid_1.6_ca65.s"
+.endproc
+
+;;; ============================================================
 
 .endproc ; reloc
         sizeof_reloc = .sizeof(reloc)
@@ -1819,11 +1855,14 @@ output_state:
         reloc__CommandHook := reloc::CommandHook
         reloc__HookCSW := reloc::HookCSW
         reloc__OurSETGR := reloc::OurSETGR
+        reloc__OurCALL := reloc::OurCALL
 
         intbasic__GETCMD := reloc::intbasic::GETCMD
         intbasic__WARM := reloc::intbasic::WARM
         intbasic__VERBADRL := reloc::intbasic::VERBADRL
         intbasic__VERBADRH := reloc::intbasic::VERBADRH
+        intbasic__CALL := reloc::intbasic::CALL
+        intbasic__ACC := reloc::intbasic::ACC
 
         .assert * <= MLI, error, "collision"
         .out .sprintf("MEM: $%04X end of Command Handler", *)

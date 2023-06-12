@@ -14,7 +14,7 @@ all: $(OUTDIR) $(TARGETS)
 $(OUTDIR):
 	mkdir -p $(OUTDIR)
 
-HEADERS := $(wildcard *.inc) IntegerBASIC_cc65.s
+HEADERS := $(wildcard *.inc) IntegerBASIC_cc65.s Programmers_Aid_1.6_ca65.s
 
 clean:
 	rm -f $(OUTDIR)/*.o

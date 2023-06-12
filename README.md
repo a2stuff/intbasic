@@ -41,3 +41,17 @@ Modifications:
 * Target address commented out (defined by includer)
 * `SYNTABLE-118` is corrected to `SYNTABLE>>1`
 * Dead code is ifdef'd out
+
+Notes:
+
+* At runtime, the `GR` command is modified to ensure the hires screen is not shown.
+* At runtime, `CALL -10473` is intercepted to support the Programmer's Aid Music Subroutine.
+
+## Programmer's Aid
+
+As a convenience, and since they were used by some Integer BASIC programs, the Programmer's Aid #1 Music Subroutine by Gary J. Shannon is included. This uses the annotated disassembly by James Davis from https://6502disassembly.com/a2-rom/PA1.html#A2PA1.6
+
+Modifications:
+
+* Target address commented out (defined by includer)
+* Padding bytes commented out
