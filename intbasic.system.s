@@ -150,6 +150,8 @@ ZP_SAVE_LEN     =  $15
         PATHBUF := $280
         PATH2   := $2C0
 
+.define STARTUP_FILE_NAME "HELLO"
+
 ;;; ProDOS Interpreter Protocol
 ;;; ProDOS 8 Technical Reference Manual
 ;;; 5.1.5.1 - Starting System Programs
@@ -157,8 +159,24 @@ ZP_SAVE_LEN     =  $15
         jmp     start
         .byte   $EE, $EE        ; Interpreter signature
         .byte   $41             ; path buffer length
-path:   .res    $41,0           ; path buffer
+path:   .byte   .strlen(STARTUP_FILE_NAME), STARTUP_FILE_NAME
+        .res    path+$41-*,0    ; path buffer
 
+;;; Just used to test if startup file exists
+gfi_startup:
+        .byte   $A      ; param_count (in)
+        .addr   PATHBUF ; pathname (in)
+        .byte   0       ; access (out)
+        .byte   0       ; file_type (out)
+        .word   0       ; aux_type (out)
+        .byte   0       ; storage_type (out)
+        .word   0       ; blocks_used (out)
+        .word   0       ; mod_date (out)
+        .word   0       ; mod_time (out)
+        .word   0       ; create_date (out)
+        .word   0       ; create_time (out)
+
+;;; Shown if startup file does not exist
 banner:
         ;;      "----------------------------------------"
         scrcode "              INTEGER BASIC"
@@ -168,20 +186,6 @@ banner:
         .byte   0
 
 start:
-
-;;; --------------------------------------------------
-;;; Display banner
-
-        jsr     HOME
-        lda     path
-        bne     done_banner
-        ldx     #0
-:       lda     banner,x
-        beq     done_banner
-        jsr     COUT
-        inx
-        bne     :-              ; always
-done_banner:
 
 ;;; --------------------------------------------------
 ;;; Copy path somewhere safe
@@ -195,16 +199,6 @@ done_banner:
         sta     PATHBUF,x
         dex
         bpl     :-
-
-        ;; Unless Open- or Solid-Apple is down, hook END/ERRMESS to QUIT
-        lda     BUTN0
-        ora     BUTN1
-        bmi     done_path
-
-        lda     #OPC_JMP_abs
-        LDXY    #reloc__QuitFromIntBASIC
-        sta     reloc + (intbasic__WARM   - BASIC_START)
-        STXY    reloc + (intbasic__WARM+1 - BASIC_START)
 
 done_path:
 
@@ -227,6 +221,33 @@ done_path:
         sta     PATH2+1
         MLI_CALL SET_PREFIX, prefix_params
 prefix_ok:
+
+;;; --------------------------------------------------
+;;; Display banner (if startup file not present)
+
+        MLI_CALL GET_FILE_INFO, gfi_startup
+        beq     skip_banner
+
+do_banner:
+        jsr     HOME
+        ldx     #0
+:       lda     banner,x
+        beq     done_banner
+        jsr     COUT
+        inx
+        bne     :-              ; always
+
+skip_banner:
+        ;; Unless Open- or Solid-Apple is down, hook END/ERRMESS to QUIT
+        lda     BUTN0
+        ora     BUTN1
+        bmi     done_banner
+
+        lda     #OPC_JMP_abs
+        LDXY    #reloc__QuitFromIntBASIC
+        sta     reloc + (intbasic__WARM   - BASIC_START)
+        STXY    reloc + (intbasic__WARM+1 - BASIC_START)
+done_banner:
 
 ;;; --------------------------------------------------
 ;;; Bug fixes
