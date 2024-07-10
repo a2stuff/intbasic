@@ -1345,8 +1345,13 @@ open:   jsr     Open
         jsr     intbasic::MON_COUT
 :
         jsr     print_entry_name
-        jsr     intbasic::MON_CROUT
-        jsr     intbasic::MON_CROUT
+
+        ldx     #0
+:       lda     header_str,x
+        jsr     COUT
+        inx
+        cpx     #kHeaderStrLen
+        bne     :-
 
         lda     ENTRY_BUFFER + $24 - 4; entries_per_block
         sta     entries_per_block
@@ -1384,7 +1389,7 @@ next_entry:
         lda     ENTRY_BUFFER + $00 ; storage_type / name_length
         beq     next_entry         ; inactive - skip
 
-        ;; Entry display: locked, name, type, block count
+        ;; Entry display: locked, name, type, block count, date
         ldx     #' '|$80
         lda     ENTRY_BUFFER + $1E ; access
         and     #%11000010         ; destroy, rename, write
@@ -1393,15 +1398,26 @@ next_entry:
 :       txa
         jsr     intbasic::MON_COUT
 
+        ;; Name
         jsr     print_entry_name
 
+        ;; Type
+        lda     #17
+        sta     CH
         jsr     print_entry_type
 
-        lda     #' '|$80
-        jsr     intbasic::MON_COUT
+        ;; Blocks
+        lda     #22
+        sta     CH
         ldx     ENTRY_BUFFER + $13 ; blocks_used lo
         lda     ENTRY_BUFFER + $14 ; blocks_used hi
         jsr     intbasic::PRDEC
+
+        ;; Date
+        lda     #28
+        sta     CH
+        jsr     print_entry_date
+
         jsr     intbasic::MON_CROUT
 
         ;; Next file, unless the use cancelled
@@ -1426,12 +1442,6 @@ ret:    rts
         inx
         @len := *+1
         cpx     #$00            ; self-modified
-        bne     :-
-        ;; Pad with spaces
-        lda     #' '|$80
-:       jsr     intbasic::MON_COUT
-        inx
-        cpx     #16
         bne     :-
         rts
 .endproc ; print_entry_name
@@ -1481,12 +1491,93 @@ types:
         .byte   0               ; sentinel
 .endproc ; print_entry_type
 
+.proc print_entry_date
+        DATE := ENTRY_BUFFER + $21
+
+        lda     DATE
+        ora     DATE+1
+        beq     no_date
+
+        ;; Day
+        lda     DATE            ; MMMDDDDD
+        and     #%00011111      ; 000DDDDD
+        cmp     #10
+        bcs     :+
+        inc     CH
+:       tax
+        lda     #0
+        jsr     intbasic::PRDEC
+
+        lda     #'-'|$80
+        jsr     COUT
+
+        ;; Month
+        lda     DATE+1          ; YYYYYYYM
+        lsr                     ; high bit of M into C
+        pha
+        lda     DATE            ; MMMDDDDD
+        ror                     ; MMMMDDDD
+        lsr                     ; 0MMMMDDD
+        lsr                     ; 00MMMMDD
+        lsr                     ; 000MMMMD
+        lsr                     ; 0000MMMM
+        tax                     ; 1-based to 0-based
+        dex
+        lda     months,x
+        jsr     COUT
+        lda     months+12,x
+        jsr     COUT
+        lda     months+24,x
+        jsr     COUT
+
+        lda     #'-'|$80
+        jsr     COUT
+
+        ;; Year
+
+        pla
+        cmp     #40             ; 0-39 is 2000-2039
+        bcs     :+              ; Per Technical Note: ProDOS #28:
+        adc     #100            ; ProDOS Dates -- 2000 and Beyond
+:       clc
+        adc     #<1900
+        tax
+        lda     #0
+        adc     #>1900
+        jmp     intbasic::PRDEC
+
+months:                         ; swizzled
+        scrcode "JFMAMJJASOND"
+        scrcode "AEAPAUUUECOE"
+        scrcode "NBRRYNLGPTVC"
+
+no_date:
+        ldx     #0
+:       lda     no_date_str,x
+        jsr     COUT
+        inx
+        cpx     #kNoDateStrLen
+        bne     :-
+        rts
+
+no_date_str:
+        scrcode "<NO DATE>"
+        kNoDateStrLen := * - no_date_str
+
+.endproc ; print_entry_date
+
 file_count:
         .word   0
 entries_per_block:
         .byte   0
 entries_this_block:
         .byte   0
+
+header_str:
+        .byte   $8D, $8D        ; CR
+        scrcode " NAME           TYPE BLOCKS MODIFIED"
+        .byte   $8D, $8D        ; CR
+        kHeaderStrLen := * - header_str
 
 .endproc ; CatCmd
 
