@@ -145,7 +145,7 @@ ZP_SAVE_LEN     =  $15
 
         IO_BUFFER := $9C00
         OUR_HIMEM := IO_BUFFER
-        BASIC_START := $A000
+        BASIC_START := $A000    ; Update `BITMAP` code if this changes
 
         PATHBUF := $280
         PATH2   := $2C0
@@ -277,9 +277,9 @@ done_banner:
         lda     #%11001111      ; ZP, Stack, Text Page 1
         sta     BITMAP
 
-        lda     #%00111111
-        sta     BITMAP+$A*2     ; Pages $A2-$A7
+        .assert BASIC_START = $A000, error, "Keep BASIC_START and BITMAP in sync"
         lda     #%11111111
+        sta     BITMAP+$A*2     ; Pages $A0-$A7
         sta     BITMAP+$A*2+1   ; Pages $A8-$AF
         sta     BITMAP+$B*2     ; Pages $B0-$B7
         sta     BITMAP+$B*2+1   ; Pages $B8-$BF (ProDOS global page)
