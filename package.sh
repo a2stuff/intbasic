@@ -5,7 +5,7 @@
 
 set -e
 
-cat <<EOF > out/readme
+cat <<EOF | tr '\n' '\r' > out/readme
 IntBASIC.system
 
 Integer BASIC Copyright 1977 Apple Computer, Inc.
