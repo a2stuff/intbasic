@@ -19,11 +19,12 @@ Built: $(date -u -Iminutes)
 Revision: $(git rev-parse --short HEAD)
 EOF
 
+PACKDIR=$(mktemp -d)
+trap "rm -r $PACKDIR" EXIT
 package () {
     IMGFILE="$1"
     IMGSIZE="$2"
 
-    PACKDIR=$(mktemp -d)
     VOLNAME="IntBASIC"
 
     rm -f "$IMGFILE"
@@ -40,9 +41,7 @@ package () {
     add_file "res/APPLEVISION.INT" "APPLEVISION#FA0000"
     add_file "out/readme" "README#040000"
 
-    rm -r "$PACKDIR"
-
-    cadius CATALOG "$IMGFILE"
+    cadius CATALOG "$IMGFILE" | cut -c1-$(tput cols)
 }
 
 package "out/intbasic_system.po"  "140KB"
